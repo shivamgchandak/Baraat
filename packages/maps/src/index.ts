@@ -16,6 +16,7 @@ import { mockEta } from "./mock.js";
 import { googleDirections, googleMatrix } from "./google.js";
 
 export { haversineMeters, mockEta } from "./mock.js";
+export { geocode, reverseGeocode, type GeocodeHit } from "./geocode.js";
 
 const DYNAMIC_TTL_S = 60;
 const STATIC_TTL_S = 60 * 60 * 6;

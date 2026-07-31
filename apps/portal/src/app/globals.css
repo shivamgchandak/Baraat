@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Theme surfaces (RGB triplets so Tailwind alpha works) */
+:root {
+  --surface: 248 248 246; /* page background */
+  --card: 255 255 255; /* panels */
+  --edge: 228 226 222; /* borders */
+  --ink: 24 24 27; /* primary text */
+  --soft: 113 113 122; /* secondary text */
+}
+
+.dark {
+  --surface: 16 16 20;
+  --card: 30 30 36;
+  --edge: 55 55 64;
+  --ink: 244 244 245;
+  --soft: 161 161 170;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  @apply bg-surface text-ink antialiased;
+}
+
+/* Leaflet needs explicit sizing + z-index below our overlays */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  border-radius: 0.75rem;
+}
+.dark .leaflet-tile {
+  filter: brightness(0.7) contrast(1.1);
+}
+
+/* Big touch-friendly button base for the driver flow */
+.btn-primary {
+  @apply w-full rounded-xl bg-brand-600 px-4 py-4 text-center text-lg font-semibold text-white transition active:scale-[0.98] disabled:opacity-50;
+}
+.btn-secondary {
+  @apply w-full rounded-xl border border-edge bg-card px-4 py-3 text-center font-medium text-ink transition active:scale-[0.98];
+}
+.input {
+  @apply w-full rounded-lg border border-edge bg-card px-3 py-2.5 text-ink placeholder:text-soft focus:border-brand-500 focus:outline-none;
+}
+.card {
+  @apply rounded-xl border border-edge bg-card p-4;
+}
+.label {
+  @apply mb-1 block text-sm font-medium text-soft;
+}

@@ -4,7 +4,7 @@ A mobile-first dispatch system for a single private group event (wedding / confe
 
 > *Baraat* — the groom's procession. Everyone arrives together, nobody gets left behind.
 
-**Status: Phase 1 (Backend) complete.** Guest app (Expo) and Admin Portal (Next.js) are Phases 2–3.
+**Status: Phases 1–2 complete** (backend + Admin Portal). Guest app (Expo) is Phase 3.
 
 ## Architecture
 
@@ -36,7 +36,7 @@ One brain, two faces, one memory, plus a worker.
 
 ```
 apps/
-  portal        -> Next.js App Router + Tailwind (Phase 2)
+  portal        -> Next.js App Router + Tailwind (Admin + Driver roles)
   guest         -> React Native Expo (Phase 3)
 services/
   api           -> Express + Prisma: auth, RBAC, CRUD, trip flows, overrides
@@ -64,11 +64,21 @@ pnpm db:seed                              # venue, airport, 3 hotels, 8 drivers,
 
 pnpm api                # Express API on :4000
 pnpm dispatch           # matching worker (separate terminal)
+pnpm portal             # Admin Portal on :3000 (separate terminal)
 ```
 
 All seeded logins use password `password123`: `admin@baraat.events`, `driver1..8@baraat.events`, `guest1..20@example.com`.
 
 `GOOGLE_MAPS_API_KEY` is optional — without it the maps adapter uses a deterministic haversine + time-varying-traffic mock, so everything (including the simulation) runs with zero external calls. `REDIS_URL` is optional too — the KV layer falls back to in-memory.
+
+### The Admin Portal (`apps/portal`)
+
+One Next.js app, two role experiences, opened at `http://localhost:3000`:
+
+- **Admin/Ops** (`admin@baraat.events`) — live dashboard with a fleet map (Leaflet + OpenStreetMap, no API key), guest/driver/trip management, ride-request approvals with a badge counter, manual overrides (priority, force-assign with capacity-aware driver picker, cancel/breakdown). Fully responsive: sidebar on desktop, bottom tabs on phone.
+- **Driver** (`driver1@baraat.events`) — mobile-first single-trip screen: one big lifecycle button (Accept → Arrived → Boarded → Drop complete), reject option, tap-to-call guests, automatic live location sharing via browser geolocation, online/offline toggle, and a break state.
+
+Light theme by default with a one-tap dark mode (remembered per device — drivers at night will thank you). The Next.js server layer is deliberately thin: httpOnly cookie session, a passthrough proxy that attaches the Bearer token (with transparent refresh rotation), and role-gating middleware — no Prisma, no business logic, per the architecture rule. Guests are refused portal login entirely.
 
 ### Try the API
 
