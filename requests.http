@@ -1,0 +1,202 @@
+### Baraat API — REST client file (VS Code "REST Client" extension / IntelliJ)
+### Run seed first: pnpm db:seed  (all passwords: password123)
+
+@base = http://localhost:4000
+
+### Health
+GET {{base}}/health
+
+### ---------- AUTH ----------
+
+### Login as admin
+# @name adminLogin
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{ "email": "admin@baraat.events", "password": "password123" }
+
+###
+@adminToken = {{adminLogin.response.body.accessToken}}
+
+### Login as driver 1
+# @name driverLogin
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{ "email": "driver1@baraat.events", "password": "password123" }
+
+###
+@driverToken = {{driverLogin.response.body.accessToken}}
+
+### Login as guest 1
+# @name guestLogin
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{ "email": "guest1@example.com", "password": "password123" }
+
+###
+@guestToken = {{guestLogin.response.body.accessToken}}
+
+### Refresh
+POST {{base}}/auth/refresh
+Content-Type: application/json
+
+{ "refreshToken": "{{adminLogin.response.body.refreshToken}}" }
+
+### ---------- ADMIN ----------
+
+### Full operational overview (drivers + guests + pending requests + trips)
+GET {{base}}/admin/overview
+Authorization: Bearer {{adminToken}}
+
+### Upcoming pre-assigned trips + unmatched guests
+GET {{base}}/admin/upcoming
+Authorization: Bearer {{adminToken}}
+
+### Onboard a new driver (manual — no self-registration)
+POST {{base}}/drivers
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Driver 9",
+  "email": "driver9@baraat.events",
+  "password": "password123",
+  "phone": "+91-9811111111",
+  "vehicleNumber": "DL1RT1009",
+  "seatCapacity": 6,
+  "luggageCapacity": 8
+}
+
+### Register a guest (manual)
+POST {{base}}/guests
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Late Guest",
+  "email": "lateguest@example.com",
+  "password": "password123",
+  "pickupLat": 28.5562,
+  "pickupLng": 77.1,
+  "pickupLabel": "IGI Airport T3",
+  "groupSize": 2,
+  "luggageCount": 2
+}
+
+### Manually correct a guest's travel details (walk-in / flight change)
+PATCH {{base}}/guests/REPLACE_GUEST_ID
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "flightTrainEta": "2026-07-30T18:30:00Z", "groupSize": 3 }
+
+### Approve an on-demand ride request (manual human decision)
+POST {{base}}/admin/requests/REPLACE_REQUEST_ID/decide
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "decision": "APPROVED" }
+
+### Manual override — force-assign guest to driver (breakdown / VIP / no auto-match)
+POST {{base}}/admin/override/assign
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "guestId": "REPLACE_GUEST_ID",
+  "driverId": "REPLACE_DRIVER_ID",
+  "type": "ON_DEMAND",
+  "destLat": 28.5286,
+  "destLng": 77.219,
+  "destLabel": "Saket Residency"
+}
+
+### Cancel a trip (vehicle breakdown) — guests re-queue
+POST {{base}}/admin/override/cancel-trip/REPLACE_TRIP_ID
+Authorization: Bearer {{adminToken}}
+
+### Flag priority guest
+POST {{base}}/admin/override/priority/REPLACE_GUEST_ID
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "priority": true }
+
+### ---------- DRIVER (role-scoped: only own data) ----------
+
+### My profile
+GET {{base}}/drivers/me
+Authorization: Bearer {{driverToken}}
+
+### My current trip (one at a time — no queue browsing)
+GET {{base}}/drivers/me/trip
+Authorization: Bearer {{driverToken}}
+
+### Accept my trip
+POST {{base}}/drivers/me/trip/REPLACE_TRIP_ID/status
+Authorization: Bearer {{driverToken}}
+Content-Type: application/json
+
+{ "status": "ACCEPTED" }
+
+### Arrived at pickup
+POST {{base}}/drivers/me/trip/REPLACE_TRIP_ID/status
+Authorization: Bearer {{driverToken}}
+Content-Type: application/json
+
+{ "status": "ARRIVED_PICKUP" }
+
+### Guest boarded
+POST {{base}}/drivers/me/trip/REPLACE_TRIP_ID/status
+Authorization: Bearer {{driverToken}}
+Content-Type: application/json
+
+{ "status": "BOARDED" }
+
+### Arrived at drop (auto-completes trip, updates break counter)
+POST {{base}}/drivers/me/trip/REPLACE_TRIP_ID/status
+Authorization: Bearer {{driverToken}}
+Content-Type: application/json
+
+{ "status": "ARRIVED_DROP" }
+
+### Share live location
+POST {{base}}/drivers/me/location
+Authorization: Bearer {{driverToken}}
+Content-Type: application/json
+
+{ "lat": 28.545, "lng": 77.15 }
+
+### Go online
+POST {{base}}/drivers/me/presence
+Authorization: Bearer {{driverToken}}
+Content-Type: application/json
+
+{ "online": true }
+
+### RBAC check — driver hitting admin endpoint must 403
+GET {{base}}/admin/overview
+Authorization: Bearer {{driverToken}}
+
+### ---------- GUEST ----------
+
+### My pickup details
+GET {{base}}/guests/me
+Authorization: Bearer {{guestToken}}
+
+### My current ride (driver name, vehicle, live ETA — no browsing)
+GET {{base}}/guests/me/ride
+Authorization: Bearer {{guestToken}}
+
+### Raise an on-demand ride request -> goes to admin for review
+POST {{base}}/guests/me/requests
+Authorization: Bearer {{guestToken}}
+Content-Type: application/json
+
+{ "note": "Landed early, need a pickup from T3 arrivals" }
+
+### My requests (see "request pending" state)
+GET {{base}}/guests/me/requests
+Authorization: Bearer {{guestToken}}

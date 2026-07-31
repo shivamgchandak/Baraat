@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.next/
+.turbo/
+.env
+.env.example
+.env.local
+*.log
+.DS_Store
+.pgdata/
+packages/db/src/generated/
+coverage/

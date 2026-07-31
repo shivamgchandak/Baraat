@@ -1,0 +1,197 @@
+// Baraat — single shared schema (one DB, one source of truth)
+generator client {
+  // New TS client generator: engine-less (WASM query compiler + node-postgres
+  // driver adapter). No Rust engine binaries — smaller deploys, works
+  // everywhere (incl. Supabase).
+  provider   = "prisma-client"
+  output     = "../src/generated"
+  engineType = "client" // Rust-free client: TS query compiler + driver adapter
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  ADMIN
+  DRIVER
+  GUEST
+}
+
+enum DriverStatus {
+  OFFLINE
+  IDLE
+  EN_ROUTE_PICKUP
+  OCCUPIED
+  ON_BREAK
+}
+
+enum GuestStatus {
+  WAITING
+  ASSIGNED
+  IN_TRANSIT
+  COMPLETED
+}
+
+enum TripType {
+  ARRIVAL
+  TO_VENUE
+  RETURN
+  DEPARTURE
+  ON_DEMAND
+}
+
+enum TripStatus {
+  ASSIGNED
+  ACCEPTED
+  ARRIVED_PICKUP
+  BOARDED
+  ARRIVED_DROP
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  DECLINED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  phone        String?
+  passwordHash String
+  role         Role
+  driver       Driver?
+  guest        Guest?
+  refreshTokens RefreshToken[]
+  createdAt    DateTime @default(now())
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Driver {
+  id               String       @id @default(cuid())
+  userId           String       @unique
+  user             User         @relation(fields: [userId], references: [id])
+  vehicleNumber    String
+  seatCapacity     Int
+  luggageCapacity  Int
+  status           DriverStatus @default(OFFLINE)
+  currentLat       Float?
+  currentLng       Float?
+  lastLocationAt   DateTime?
+  predictedFreeAt  DateTime? // when they finish current trip
+  predictedFreeLat Float? // where they will be when free
+  predictedFreeLng Float?
+  tripsSinceBreak  Int          @default(0)
+  lastBreakAt      DateTime?
+  trips            Trip[]
+
+  @@index([status])
+}
+
+model Accommodation {
+  id     String  @id @default(cuid())
+  name   String
+  lat    Float
+  lng    Float
+  guests Guest[]
+}
+
+/// Fixed event locations: venue, airport, railway station.
+model EventLocation {
+  id   String @id @default(cuid())
+  name String
+  kind String // "VENUE" | "AIRPORT" | "STATION"
+  lat  Float
+  lng  Float
+}
+
+model Guest {
+  id              String         @id @default(cuid())
+  userId          String         @unique
+  user            User           @relation(fields: [userId], references: [id])
+  pickupLat       Float?
+  pickupLng       Float?
+  pickupLabel     String? // "Airport T2", "Grand Hotel"
+  accommodationId String?
+  accommodation   Accommodation? @relation(fields: [accommodationId], references: [id])
+  flightTrainEta  DateTime?
+  groupSize       Int            @default(1)
+  luggageCount    Int            @default(0)
+  status          GuestStatus    @default(WAITING)
+  waitingSince    DateTime? // set when they enter the queue
+  deadline        DateTime? // latest acceptable pickup
+  priority        Boolean        @default(false) // admin can flag priority guests
+  tripGuests      TripGuest[]
+  rideRequests    RideRequest[]
+
+  @@index([status])
+}
+
+model Trip {
+  id              String     @id @default(cuid())
+  driverId        String
+  driver          Driver     @relation(fields: [driverId], references: [id])
+  type            TripType
+  status          TripStatus @default(ASSIGNED)
+  originLat       Float
+  originLng       Float
+  originLabel     String?
+  destLat         Float
+  destLng         Float
+  destLabel       String?
+  deadline        DateTime?
+  plannedRoute    Json? // ordered waypoints (incl. detour insertions)
+  etaSeconds      Int? // current predicted pickup ETA
+  assignedBy      String     @default("ENGINE") // ENGINE | ADMIN_OVERRIDE
+  assignedAt      DateTime   @default(now())
+  acceptedAt      DateTime?
+  arrivedPickupAt DateTime?
+  boardedAt       DateTime?
+  arrivedDropAt   DateTime?
+  completedAt     DateTime?
+  tripGuests      TripGuest[]
+
+  @@index([driverId, status])
+  @@index([status])
+}
+
+model TripGuest {
+  tripId  String
+  guestId String
+  trip    Trip   @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  guest   Guest  @relation(fields: [guestId], references: [id])
+
+  @@id([tripId, guestId])
+}
+
+model RideRequest {
+  id              String        @id @default(cuid())
+  guestId         String
+  guest           Guest         @relation(fields: [guestId], references: [id])
+  status          RequestStatus @default(PENDING)
+  note            String?
+  requestedAt     DateTime      @default(now())
+  decidedByUserId String?
+  decidedAt       DateTime?
+  resultingTripId String?
+
+  @@index([status])
+}

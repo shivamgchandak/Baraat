@@ -1,0 +1,22 @@
+{
+  "name": "baraat",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Baraat — automated dispatch system for private group events (The Bride Side assignment)",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "db:migrate": "pnpm --filter @baraat/db migrate:dev",
+    "db:seed": "pnpm --filter @baraat/db seed",
+    "api": "pnpm --filter @baraat/api dev",
+    "dispatch": "pnpm --filter @baraat/dispatch dev",
+    "simulate": "pnpm --filter @baraat/dispatch simulate"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  }
+}

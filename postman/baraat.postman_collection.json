@@ -1,0 +1,387 @@
+{
+  "info": {
+    "name": "Baraat API — chronological test flow",
+    "description": "Run top to bottom. Login requests auto-save tokens; overview auto-saves IDs. Prereqs: migrate + seed done, `pnpm api` running (and `pnpm dispatch` for auto-assignment steps).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000" },
+    { "key": "adminToken", "value": "" },
+    { "key": "driverToken", "value": "" },
+    { "key": "guestToken", "value": "" },
+    { "key": "tripId", "value": "" },
+    { "key": "requestId", "value": "" },
+    { "key": "guestId", "value": "" },
+    { "key": "driverId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "0. Health check",
+      "request": { "method": "GET", "url": "{{baseUrl}}/health" }
+    },
+    {
+      "name": "1a. Login — Admin",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const j = pm.response.json();",
+              "pm.collectionVariables.set('adminToken', j.accessToken);",
+              "pm.test('got admin token', () => pm.expect(j.accessToken).to.be.a('string'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/auth/login",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"admin@baraat.events\",\n  \"password\": \"password123\"\n}"
+        }
+      }
+    },
+    {
+      "name": "1b. Login — Driver 1",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const j = pm.response.json();",
+              "pm.collectionVariables.set('driverToken', j.accessToken);",
+              "pm.test('got driver token', () => pm.expect(j.accessToken).to.be.a('string'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/auth/login",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"driver1@baraat.events\",\n  \"password\": \"password123\"\n}"
+        }
+      }
+    },
+    {
+      "name": "1c. Login — Guest 1",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const j = pm.response.json();",
+              "pm.collectionVariables.set('guestToken', j.accessToken);",
+              "pm.test('got guest token', () => pm.expect(j.accessToken).to.be.a('string'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/auth/login",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"guest1@example.com\",\n  \"password\": \"password123\"\n}"
+        }
+      }
+    },
+    {
+      "name": "2a. Admin — full overview (auto-saves IDs)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const j = pm.response.json();",
+              "if (j.drivers?.length) pm.collectionVariables.set('driverId', j.drivers[0].id);",
+              "const anyGuest = j.guests.waiting[0] || j.guests.assigned[0] || j.guests.completed[0];",
+              "if (anyGuest) pm.collectionVariables.set('guestId', anyGuest.id);",
+              "if (j.activeTrips?.length) pm.collectionVariables.set('tripId', j.activeTrips[0].id);",
+              "pm.test('has 8+ drivers', () => pm.expect(j.drivers.length).to.be.at.least(8));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/admin/overview",
+        "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }]
+      }
+    },
+    {
+      "name": "2b. Admin — upcoming trips + unmatched guests",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/admin/upcoming",
+        "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }]
+      }
+    },
+    {
+      "name": "3a. Admin — onboard new driver (manual)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/drivers",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Driver 9\",\n  \"email\": \"driver9@baraat.events\",\n  \"password\": \"password123\",\n  \"phone\": \"+91-9811111111\",\n  \"vehicleNumber\": \"DL1RT1009\",\n  \"seatCapacity\": 6,\n  \"luggageCapacity\": 8\n}"
+        }
+      }
+    },
+    {
+      "name": "3b. Admin — register new guest (manual)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/guests",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Late Guest\",\n  \"email\": \"lateguest@example.com\",\n  \"password\": \"password123\",\n  \"pickupLat\": 28.5562,\n  \"pickupLng\": 77.1,\n  \"pickupLabel\": \"IGI Airport T3\",\n  \"groupSize\": 2,\n  \"luggageCount\": 2\n}"
+        }
+      }
+    },
+    {
+      "name": "3c. Admin — correct guest travel details (walk-in / flight change)",
+      "request": {
+        "method": "PATCH",
+        "url": "{{baseUrl}}/guests/{{guestId}}",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"groupSize\": 3,\n  \"luggageCount\": 4\n}"
+        }
+      }
+    },
+    {
+      "name": "4a. Guest — my pickup details",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/guests/me",
+        "header": [{ "key": "Authorization", "value": "Bearer {{guestToken}}" }]
+      }
+    },
+    {
+      "name": "4b. Guest — my current ride (driver, vehicle, ETA)",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/guests/me/ride",
+        "header": [{ "key": "Authorization", "value": "Bearer {{guestToken}}" }]
+      }
+    },
+    {
+      "name": "4c. Guest — raise on-demand ride request",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const j = pm.response.json();",
+              "if (j.id) pm.collectionVariables.set('requestId', j.id);",
+              "pm.test('request is PENDING', () => pm.expect(j.status).to.eql('PENDING'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/guests/me/requests",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{guestToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"note\": \"Landed early, need pickup from T3 arrivals\"\n}"
+        }
+      }
+    },
+    {
+      "name": "4d. Guest — my requests (see pending state)",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/guests/me/requests",
+        "header": [{ "key": "Authorization", "value": "Bearer {{guestToken}}" }]
+      }
+    },
+    {
+      "name": "5. Admin — APPROVE the on-demand request (engine then auto-assigns)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/admin/requests/{{requestId}}/decide",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"decision\": \"APPROVED\"\n}"
+        }
+      }
+    },
+    {
+      "name": "6a. Driver — my profile",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/drivers/me",
+        "header": [{ "key": "Authorization", "value": "Bearer {{driverToken}}" }]
+      }
+    },
+    {
+      "name": "6b. Driver — go online",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/drivers/me/presence",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{driverToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"online\": true\n}" }
+      }
+    },
+    {
+      "name": "6c. Driver — my current trip (auto-saves tripId)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const j = pm.response.json();",
+              "if (j && j.id) pm.collectionVariables.set('tripId', j.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/drivers/me/trip",
+        "header": [{ "key": "Authorization", "value": "Bearer {{driverToken}}" }]
+      }
+    },
+    {
+      "name": "6d. Driver — ACCEPT trip",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/drivers/me/trip/{{tripId}}/status",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{driverToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"status\": \"ACCEPTED\"\n}" }
+      }
+    },
+    {
+      "name": "6e. Driver — share live location",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/drivers/me/location",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{driverToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"lat\": 28.545,\n  \"lng\": 77.15\n}" }
+      }
+    },
+    {
+      "name": "6f. Driver — ARRIVED AT PICKUP",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/drivers/me/trip/{{tripId}}/status",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{driverToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"status\": \"ARRIVED_PICKUP\"\n}" }
+      }
+    },
+    {
+      "name": "6g. Driver — GUEST BOARDED",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/drivers/me/trip/{{tripId}}/status",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{driverToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"status\": \"BOARDED\"\n}" }
+      }
+    },
+    {
+      "name": "6h. Driver — ARRIVED AT DROP (auto-completes trip)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/drivers/me/trip/{{tripId}}/status",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{driverToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"status\": \"ARRIVED_DROP\"\n}" }
+      }
+    },
+    {
+      "name": "7. RBAC check — driver token on admin endpoint (expect 403)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": ["pm.test('driver blocked from admin view', () => pm.response.to.have.status(403));"]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/admin/overview",
+        "header": [{ "key": "Authorization", "value": "Bearer {{driverToken}}" }]
+      }
+    },
+    {
+      "name": "8a. Admin — flag priority guest",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/admin/override/priority/{{guestId}}",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"priority\": true\n}" }
+      }
+    },
+    {
+      "name": "8b. Admin — manual override assign (VIP / no auto-match)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/admin/override/assign",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"guestId\": \"{{guestId}}\",\n  \"driverId\": \"{{driverId}}\",\n  \"type\": \"ON_DEMAND\",\n  \"destLat\": 28.5286,\n  \"destLng\": 77.219,\n  \"destLabel\": \"Saket Residency\"\n}"
+        }
+      }
+    },
+    {
+      "name": "8c. Admin — cancel trip (breakdown; guests re-queue)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/admin/override/cancel-trip/{{tripId}}",
+        "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }]
+      }
+    }
+  ]
+}
