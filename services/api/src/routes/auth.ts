@@ -30,7 +30,12 @@ authRouter.post("/login", async (req, res) => {
     where: { email: parsed.data.email },
     include: { driver: true, guest: true },
   });
-  if (!user || !(await bcrypt.compare(parsed.data.password, user.passwordHash))) {
+  if (user && !user.passwordHash) {
+    return res.status(403).json({
+      error: "Account not activated yet — use the invitation link sent to your email",
+    });
+  }
+  if (!user || !(await bcrypt.compare(parsed.data.password, user.passwordHash!))) {
     return res.status(401).json({ error: "Invalid credentials" });
   }
   const payload = (await buildPayload(user.id))!;
@@ -38,6 +43,40 @@ authRouter.post("/login", async (req, res) => {
     accessToken: signAccessToken(payload),
     refreshToken: await issueRefreshToken(user.id),
     user: { id: user.id, name: user.name, role: user.role },
+  });
+});
+
+/** Validate an invitation token (the activate screen shows who it's for). */
+authRouter.get("/invite/:token", async (req, res) => {
+  const user = await prisma.user.findUnique({ where: { inviteToken: req.params.token! } });
+  if (!user) return res.status(404).json({ error: "Invalid or already-used invitation link" });
+  return res.json({ name: user.name, email: user.email });
+});
+
+/**
+ * First-time activation: guest sets their password via the emailed link.
+ * The link is single-use; afterwards they log in with email + password.
+ */
+authRouter.post("/activate", async (req, res) => {
+  const parsed = z
+    .object({ token: z.string().min(10), password: z.string().min(8) })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const user = await prisma.user.findUnique({ where: { inviteToken: parsed.data.token } });
+  if (!user) return res.status(404).json({ error: "Invalid or already-used invitation link" });
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      passwordHash: await bcrypt.hash(parsed.data.password, 10),
+      activatedAt: new Date(),
+      inviteToken: null, // single-use
+    },
+  });
+  const payload = (await buildPayload(user.id))!;
+  return res.json({
+    accessToken: signAccessToken(payload),
+    refreshToken: await issueRefreshToken(user.id),
+    user: { id: user.id, name: user.name, role: user.role, email: user.email },
   });
 });
 

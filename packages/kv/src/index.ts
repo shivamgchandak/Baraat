@@ -6,7 +6,7 @@
  * system keeps working on the in-memory fallback (queue is rebuilt from
  * Postgres state on worker restart — DB remains the source of truth).
  */
-import Redis from "ioredis";
+import { Redis } from "ioredis";
 
 export interface Kv {
   get(key: string): Promise<string | null>;

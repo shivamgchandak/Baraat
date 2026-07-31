@@ -177,6 +177,36 @@ adminRouter.post("/override/cancel-trip/:tripId", async (req, res) => {
   return res.json({ ok: true });
 });
 
+// ---------- Event lifecycle ----------
+adminRouter.get("/event", async (_req, res) => {
+  const event =
+    (await prisma.eventState.findUnique({ where: { id: "event" } })) ??
+    (await prisma.eventState.create({ data: { id: "event" } }));
+  return res.json(event);
+});
+
+/**
+ * End (or reopen) the event. When CLOSED, guests can no longer raise ride
+ * requests; in-progress trips and admin tools keep working for wrap-up.
+ */
+adminRouter.post("/event/status", async (req, res) => {
+  const parsed = z.object({ status: z.enum(["ACTIVE", "CLOSED"]) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const event = await prisma.eventState.upsert({
+    where: { id: "event" },
+    create: {
+      id: "event",
+      status: parsed.data.status,
+      closedAt: parsed.data.status === "CLOSED" ? new Date() : null,
+    },
+    update: {
+      status: parsed.data.status,
+      closedAt: parsed.data.status === "CLOSED" ? new Date() : null,
+    },
+  });
+  return res.json(event);
+});
+
 /** Flag / unflag a priority guest (bumps them in the queue). */
 adminRouter.post("/override/priority/:guestId", async (req, res) => {
   const parsed = z.object({ priority: z.boolean() }).safeParse(req.body);

@@ -65,12 +65,27 @@ model User {
   name         String
   email        String   @unique
   phone        String?
-  passwordHash String
+  /// null until the user activates via their invitation link
+  passwordHash String?
   role         Role
+  /// invitation flow (guests): admin adds guest -> invite emailed ->
+  /// guest sets password via the link -> account active
+  inviteToken  String?  @unique
+  invitedAt    DateTime?
+  activatedAt  DateTime?
   driver       Driver?
   guest        Guest?
   refreshTokens RefreshToken[]
   createdAt    DateTime @default(now())
+}
+
+/// Single-row event lifecycle switch. When CLOSED, guests can no longer
+/// raise ride requests (drivers/admin flows keep working for wrap-up).
+model EventState {
+  id       String    @id @default("event")
+  name     String    @default("Baraat Event")
+  status   String    @default("ACTIVE") // ACTIVE | CLOSED
+  closedAt DateTime?
 }
 
 model RefreshToken {

@@ -13,6 +13,7 @@
     "db:seed": "pnpm --filter @baraat/db seed",
     "api": "pnpm --filter @baraat/api dev",
     "dispatch": "pnpm --filter @baraat/dispatch dev",
+    "portal": "pnpm --filter @baraat/portal dev",
     "simulate": "pnpm --filter @baraat/dispatch simulate"
   },
   "devDependencies": {
