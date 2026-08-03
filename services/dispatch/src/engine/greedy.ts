@@ -1,14 +1,4 @@
-/**
- * Real-time greedy matcher — for one-off arrivals and admin-approved
- * on-demand requests between batch rounds. Resolves in milliseconds.
- *
- * Feasibility filter: capacity fits AND (idle now OR free soon enough to
- * still meet the deadline) AND not on break.
- * Score: ETA-to-pickup + how-soon-free (idle drivers win ties).
- *
- * Fleet escalation: a group larger than any single vehicle is split
- * greedily across multiple vehicles (largest first) — "split & coordinate".
- */
+
 import { DriverStatus, TripType } from "@baraat/db";
 import { eta } from "@baraat/maps";
 import type { Cluster } from "./clustering.js";
@@ -32,7 +22,7 @@ export async function greedyMatchOne(
     (d) =>
       d.status !== DriverStatus.ON_BREAK &&
       d.status !== DriverStatus.OFFLINE &&
-      d.activeTripId === null, // busy drivers are detour candidates, not greedy ones
+      d.activeTripId === null,
   );
 
   const maxVehicle = Math.max(0, ...candidates.map((d) => d.seatCapacity));
@@ -46,8 +36,7 @@ export async function greedyMatchOne(
   }
   const best = scored[0]!;
   const tripId = await persistAssignment(best.driver, toCluster(guest), tripType, "GREEDY");
-  // Mutate the shared snapshot so later guests in the SAME tick don't pile
-  // onto this driver — they see him as busy immediately.
+
   best.driver.activeTripId = tripId;
   best.driver.seatsInUse += guest.groupSize;
   best.driver.luggageInUse += guest.luggageCount;
@@ -79,7 +68,6 @@ async function scoreCandidates(
   return scored.sort((a, b) => a.score - b.score);
 }
 
-/** Split a too-large group across several vehicles, largest first. */
 async function splitAcrossFleet(
   guest: GuestSnapshot,
   candidates: DriverSnapshot[],
@@ -108,8 +96,7 @@ async function splitAcrossFleet(
     luggageLeft -= luggage;
   }
   if (seatsLeft > 0) {
-    // Couldn't place the whole group — leave guest WAITING so the queue
-    // retries; admin sees them under "unmatched" and can override.
+
     return { guestId: guest.id, outcome: "NO_FEASIBLE_DRIVER", tripIds };
   }
   return { guestId: guest.id, outcome: "SPLIT_ASSIGNED", tripIds };
@@ -123,9 +110,9 @@ function toCluster(g: GuestSnapshot): Cluster {
     deadline: g.deadline,
     lat: g.lat,
     lng: g.lng,
-    destLat: g.accommodation?.lat ?? g.lat,
-    destLng: g.accommodation?.lng ?? g.lng,
-    destLabel: g.accommodation?.name ?? "Destination TBC",
+    destLat: g.drop?.lat ?? g.lat,
+    destLng: g.drop?.lng ?? g.lng,
+    destLabel: g.drop?.label ?? "Destination TBC",
     accommodationId: g.accommodationId,
     priority: g.priority,
   };

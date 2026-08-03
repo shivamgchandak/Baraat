@@ -1,4 +1,4 @@
-// Shared types across api, dispatch, portal, guest app.
+
 
 export * from "./constants.js";
 
@@ -7,7 +7,7 @@ export type LatLng = { lat: number; lng: number };
 export type RoleName = "ADMIN" | "DRIVER" | "GUEST";
 
 export interface JwtPayload {
-  sub: string; // user id
+  sub: string;
   role: RoleName;
   driverId?: string;
   guestId?: string;
@@ -18,7 +18,6 @@ export interface AuthTokens {
   refreshToken: string;
 }
 
-/** ETA result from the maps adapter (real Google or mock). */
 export interface EtaResult {
   seconds: number;
   meters: number;
@@ -26,24 +25,22 @@ export interface EtaResult {
   cached: boolean;
 }
 
-/** A stop in a planned route (supports detour insertion mid-trip). */
 export interface RouteStop {
   kind: "PICKUP" | "DROP";
   guestId: string;
   lat: number;
   lng: number;
   label?: string;
-  etaSeconds?: number; // cumulative from route start
+  etaSeconds?: number;
 }
 
 export interface PlannedRoute {
   stops: RouteStop[];
   totalSeconds: number;
   totalMeters: number;
-  computedAt: string; // ISO
+  computedAt: string;
 }
 
-/** What the engine considers when scoring driver x guest. */
 export interface MatchCandidate {
   driverId: string;
   guestId: string;
@@ -60,7 +57,7 @@ export interface MatchCandidate {
 }
 
 export interface AssignmentDecision {
-  guestIds: string[]; // >1 = clustered shared ride
+  guestIds: string[];
   driverId: string;
   tripType: "ARRIVAL" | "TO_VENUE" | "RETURN" | "DEPARTURE" | "ON_DEMAND";
   etaToPickupSeconds: number;

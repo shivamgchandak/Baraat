@@ -1,10 +1,38 @@
-/**
- * Catch-all proxy to the backend. Attaches the Bearer token from the
- * httpOnly cookie; on 401 tries one refresh-token rotation transparently.
- * Pure passthrough — no business logic (thin-server rule).
- */
+
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, backendUrl, type Session } from "@/lib/session";
+
+const inflightRefresh = new Map<
+  string,
+  Promise<{ accessToken: string; refreshToken: string } | null>
+>();
+
+async function refreshOnce(
+  refreshToken: string,
+): Promise<{ accessToken: string; refreshToken: string } | null> {
+  const existing = inflightRefresh.get(refreshToken);
+  if (existing) return existing;
+  const p = (async () => {
+    try {
+      const r = await fetch(`${backendUrl()}/auth/refresh`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+        cache: "no-store",
+      });
+      if (!r.ok) return null;
+      const j = await r.json();
+      return { accessToken: j.accessToken as string, refreshToken: j.refreshToken as string };
+    } catch {
+      return null;
+    } finally {
+
+      setTimeout(() => inflightRefresh.delete(refreshToken), 5000);
+    }
+  })();
+  inflightRefresh.set(refreshToken, p);
+  return p;
+}
 
 async function forward(
   req: NextRequest,
@@ -42,23 +70,17 @@ async function forward(
     );
   }
 
-  // One transparent refresh on expiry.
   let rotated: Session | null = null;
   if (res.status === 401) {
-    try {
-      const r = await fetch(`${backendUrl()}/auth/refresh`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ refreshToken: session.refreshToken }),
-        cache: "no-store",
-      });
-      if (r.ok) {
-        const j = await r.json();
-        rotated = { ...session, accessToken: j.accessToken, refreshToken: j.refreshToken };
-        res = await fetch(url, await init(rotated.accessToken));
-      }
-    } catch {
-      // refresh attempt failed on network level — fall through with original 401
+    const fresh = await refreshOnce(session.refreshToken);
+    if (fresh) {
+      rotated = { ...session, accessToken: fresh.accessToken, refreshToken: fresh.refreshToken };
+      res = await fetch(url, await init(rotated.accessToken));
+    } else {
+
+      const out = NextResponse.json({ error: "Session expired — sign in again" }, { status: 401 });
+      out.cookies.set(SESSION_COOKIE, "", { maxAge: 0, path: "/" });
+      return out;
     }
   }
 

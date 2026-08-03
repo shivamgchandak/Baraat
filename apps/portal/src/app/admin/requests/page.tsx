@@ -1,6 +1,5 @@
 "use client";
 
-/** On-demand ride requests: the human approve/decline decision. */
 import { useState } from "react";
 import { usePoll, api, timeAgo } from "@/lib/client";
 import type { Overview } from "@/lib/types";

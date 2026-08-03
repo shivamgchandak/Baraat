@@ -1,12 +1,9 @@
-/**
- * Persists an engine decision atomically: trip + trip-guests + guest status
- * + driver predicted-free state, all in one transaction. This is why the
- * system runs on ONE database — assignment is a single atomic operation.
- */
-import { prisma, DriverStatus, GuestStatus, TripType } from "@baraat/db";
+
+import { prisma, DriverStatus, GuestStatus, TripType, getActiveEventId } from "@baraat/db";
 import type { Cluster } from "./clustering.js";
 import type { DriverSnapshot } from "./state.js";
 import { eta } from "@baraat/maps";
+import { sendPush } from "@baraat/push";
 
 export async function persistAssignment(
   driver: DriverSnapshot,
@@ -32,9 +29,11 @@ export async function persistAssignment(
       ? now.getTime()
       : (driver.predictedFreeAt ?? now).getTime();
 
+  const eventId = await getActiveEventId();
   const trip = await prisma.$transaction(async (tx) => {
     const t = await tx.trip.create({
       data: {
+        eventId,
         driverId: driver.id,
         type: tripType,
         originLat: cluster.lat,
@@ -92,5 +91,27 @@ export async function persistAssignment(
       toPickup.seconds / 60,
     )}m dest=${cluster.destLabel}`,
   );
+
+  void (async () => {
+    const [users, driverRow] = await Promise.all([
+      prisma.user.findMany({
+        where: { guest: { id: { in: cluster.guests.map((g) => g.id) } } },
+        select: { expoPushToken: true },
+      }),
+      prisma.driver.findUnique({
+        where: { id: driver.id },
+        include: { user: { select: { name: true } } },
+      }),
+    ]);
+    void sendPush(
+      users.map((u) => u.expoPushToken),
+      {
+        title: "You're matched! 🎉",
+        body: `${driverRow?.user.name ?? "Your driver"} (${driverRow?.vehicleNumber ?? ""}) will pick you up — about ${Math.max(1, Math.round(toPickup.seconds / 60))} min away.`,
+        data: { tripId: trip.id },
+      },
+    );
+  })();
+
   return trip.id;
 }

@@ -73,6 +73,8 @@ model User {
   inviteToken  String?  @unique
   invitedAt    DateTime?
   activatedAt  DateTime?
+  /// Expo push notification token (guest app / driver phone)
+  expoPushToken String?
   driver       Driver?
   guest        Guest?
   refreshTokens RefreshToken[]
@@ -81,11 +83,22 @@ model User {
 
 /// Single-row event lifecycle switch. When CLOSED, guests can no longer
 /// raise ride requests (drivers/admin flows keep working for wrap-up).
-model EventState {
-  id       String    @id @default("event")
-  name     String    @default("Baraat Event")
-  status   String    @default("ACTIVE") // ACTIVE | CLOSED
-  closedAt DateTime?
+/// One event at a time is ACTIVE; ended events become CLOSED (read-only archive).
+model Event {
+  id             String          @id @default(cuid())
+  name           String
+  status         String          @default("ACTIVE") // ACTIVE | CLOSED
+  /// Ride window: guests/drivers can only transact between these. Null = open-ended.
+  startsAt       DateTime?
+  endsAt         DateTime?
+  createdAt      DateTime        @default(now())
+  closedAt       DateTime?
+  accommodations Accommodation[]
+  eventLocations EventLocation[]
+  guests         Guest[]
+  trips          Trip[]
+
+  @@index([status])
 }
 
 model RefreshToken {
@@ -122,29 +135,44 @@ model Driver {
 }
 
 model Accommodation {
-  id     String  @id @default(cuid())
-  name   String
-  lat    Float
-  lng    Float
-  guests Guest[]
+  id      String  @id @default(cuid())
+  eventId String?
+  event   Event?  @relation(fields: [eventId], references: [id])
+  name    String
+  lat     Float
+  lng     Float
+  guests  Guest[]
+
+  @@index([eventId])
 }
 
-/// Fixed event locations: venue, airport, railway station.
+/// Saved important places for an event: venue, airport, railway station, etc.
 model EventLocation {
-  id   String @id @default(cuid())
-  name String
-  kind String // "VENUE" | "AIRPORT" | "STATION"
-  lat  Float
-  lng  Float
+  id      String  @id @default(cuid())
+  eventId String?
+  event   Event?  @relation(fields: [eventId], references: [id])
+  name    String
+  kind    String // "VENUE" | "AIRPORT" | "STATION" | "PLACE"
+  lat     Float
+  lng     Float
+
+  @@index([eventId])
 }
 
 model Guest {
   id              String         @id @default(cuid())
+  eventId         String?
+  event           Event?         @relation(fields: [eventId], references: [id])
   userId          String         @unique
   user            User           @relation(fields: [userId], references: [id])
   pickupLat       Float?
   pickupLng       Float?
   pickupLabel     String? // "Airport T2", "Grand Hotel"
+  /// Optional explicit drop location set by admin; overrides the
+  /// accommodation as the trip destination when present.
+  dropLat         Float?
+  dropLng         Float?
+  dropLabel       String?
   accommodationId String?
   accommodation   Accommodation? @relation(fields: [accommodationId], references: [id])
   flightTrainEta  DateTime?
@@ -154,14 +182,19 @@ model Guest {
   waitingSince    DateTime? // set when they enter the queue
   deadline        DateTime? // latest acceptable pickup
   priority        Boolean        @default(false) // admin can flag priority guests
+  /// requested pickup date/time (guest-scheduled ride)
+  pickupAt        DateTime?
   tripGuests      TripGuest[]
   rideRequests    RideRequest[]
 
   @@index([status])
+  @@index([eventId])
 }
 
 model Trip {
   id              String     @id @default(cuid())
+  eventId         String?
+  event           Event?     @relation(fields: [eventId], references: [id])
   driverId        String
   driver          Driver     @relation(fields: [driverId], references: [id])
   type            TripType
@@ -175,6 +208,10 @@ model Trip {
   deadline        DateTime?
   plannedRoute    Json? // ordered waypoints (incl. detour insertions)
   etaSeconds      Int? // current predicted pickup ETA
+  /// 4-digit boarding code (hashed): guest generates at pickup, driver must
+  /// enter it to mark BOARDED — proves the right guest is in the right car.
+  boardingOtpHash String?
+  boardingOtpAt   DateTime?
   assignedBy      String     @default("ENGINE") // ENGINE | ADMIN_OVERRIDE
   assignedAt      DateTime   @default(now())
   acceptedAt      DateTime?
@@ -186,6 +223,7 @@ model Trip {
 
   @@index([driverId, status])
   @@index([status])
+  @@index([eventId])
 }
 
 model TripGuest {

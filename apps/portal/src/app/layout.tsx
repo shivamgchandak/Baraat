@@ -9,10 +9,9 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1, // prevents accidental zoom while tapping fast in a car
+  maximumScale: 1,
 };
 
-// Runs before paint: applies saved theme, defaults to light.
 const themeInit = `
 try {
   if (localStorage.getItem('baraat-theme') === 'dark') {

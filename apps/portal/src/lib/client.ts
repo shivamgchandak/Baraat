@@ -1,6 +1,5 @@
 "use client";
 
-/** Browser-side helpers: proxy fetch + polling hook. */
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export async function api<T = unknown>(
@@ -18,8 +17,7 @@ export async function api<T = unknown>(
       cache: "no-store",
     });
   } catch {
-    // Network-level failure (server restarting, offline, backend down):
-    // report as an error instead of crashing the page.
+
     return { ok: false, status: 0, data: null as T };
   }
   let data: T;
@@ -34,7 +32,6 @@ export async function api<T = unknown>(
   return { ok: res.ok, status: res.status, data };
 }
 
-/** Poll an endpoint every `ms` (default 4s); pause when tab is hidden. */
 export function usePoll<T>(path: string, ms = 4000): {
   data: T | null;
   error: boolean;

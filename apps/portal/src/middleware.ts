@@ -1,4 +1,4 @@
-/** Role gate: /admin only for ADMIN, /driver only for DRIVER. */
+
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE } from "@/lib/session";
 

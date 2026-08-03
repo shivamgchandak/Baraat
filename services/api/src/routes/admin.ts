@@ -1,30 +1,35 @@
 import { Router } from "express";
 import { z } from "zod";
-import { prisma, GuestStatus, RequestStatus, TripStatus, TripType, DriverStatus } from "@baraat/db";
+import { prisma, GuestStatus, RequestStatus, TripStatus, TripType, DriverStatus, getActiveEvent } from "@baraat/db";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { eta } from "@baraat/maps";
 
 export const adminRouter: Router = Router();
 adminRouter.use(requireAuth, requireRole("ADMIN"));
 
-/** Full operational dashboard: every driver + every guest, live. */
 adminRouter.get("/overview", async (_req, res) => {
+  const active = await getActiveEvent();
+  const eventId = active?.id ?? "__none__";
   const [drivers, guests, pendingRequests, activeTrips] = await Promise.all([
     prisma.driver.findMany({
       include: { user: { select: { name: true, phone: true } } },
     }),
     prisma.guest.findMany({
+      where: { eventId },
       include: {
         user: { select: { name: true, phone: true } },
         accommodation: { select: { name: true } },
       },
     }),
     prisma.rideRequest.findMany({
-      where: { status: RequestStatus.PENDING },
+      where: { status: RequestStatus.PENDING, guest: { eventId } },
       include: { guest: { include: { user: { select: { name: true } } } } },
     }),
     prisma.trip.findMany({
-      where: { status: { in: [TripStatus.ASSIGNED, TripStatus.ACCEPTED, TripStatus.ARRIVED_PICKUP, TripStatus.BOARDED] } },
+      where: {
+        eventId,
+        status: { in: [TripStatus.ASSIGNED, TripStatus.ACCEPTED, TripStatus.ARRIVED_PICKUP, TripStatus.BOARDED] },
+      },
       include: {
         driver: { include: { user: { select: { name: true } } } },
         tripGuests: { include: { guest: { include: { user: { select: { name: true } } } } } },
@@ -32,6 +37,7 @@ adminRouter.get("/overview", async (_req, res) => {
     }),
   ]);
   return res.json({
+    event: active,
     drivers,
     guests: {
       waiting: guests.filter((g) => g.status === GuestStatus.WAITING),
@@ -44,11 +50,12 @@ adminRouter.get("/overview", async (_req, res) => {
   });
 });
 
-/** Upcoming pre-assigned trips + unmatched guests. */
 adminRouter.get("/upcoming", async (_req, res) => {
+  const active = await getActiveEvent();
+  const eventId = active?.id ?? "__none__";
   const [upcoming, unmatched] = await Promise.all([
     prisma.trip.findMany({
-      where: { status: TripStatus.ASSIGNED },
+      where: { eventId, status: TripStatus.ASSIGNED },
       orderBy: { assignedAt: "asc" },
       include: {
         driver: { include: { user: { select: { name: true } } } },
@@ -56,7 +63,7 @@ adminRouter.get("/upcoming", async (_req, res) => {
       },
     }),
     prisma.guest.findMany({
-      where: { status: GuestStatus.WAITING },
+      where: { eventId, status: GuestStatus.WAITING },
       orderBy: { waitingSince: "asc" },
       include: { user: { select: { name: true } } },
     }),
@@ -64,7 +71,6 @@ adminRouter.get("/upcoming", async (_req, res) => {
   return res.json({ upcoming, unmatched });
 });
 
-// ---------- On-demand request decisions (manual, human) ----------
 const decisionSchema = z.object({ decision: z.enum(["APPROVED", "DECLINED"]) });
 
 adminRouter.post("/requests/:requestId/decide", async (req, res) => {
@@ -85,8 +91,7 @@ adminRouter.post("/requests/:requestId/decide", async (req, res) => {
       data: { status, decidedByUserId: req.auth!.sub, decidedAt: new Date() },
     });
     if (status === RequestStatus.APPROVED) {
-      // Hand to the engine: mark guest WAITING; the dispatch worker's
-      // real-time greedy pass picks it up. Admin never picks the driver.
+
       await tx.guest.update({
         where: { id: request.guestId },
         data: { status: GuestStatus.WAITING, waitingSince: new Date() },
@@ -96,7 +101,6 @@ adminRouter.post("/requests/:requestId/decide", async (req, res) => {
   return res.json({ ok: true, status });
 });
 
-// ---------- Manual override ----------
 const overrideSchema = z.object({
   guestId: z.string(),
   driverId: z.string(),
@@ -106,11 +110,6 @@ const overrideSchema = z.object({
   destLabel: z.string().optional(),
 });
 
-/**
- * Edge-case escape hatch: priority guest, breakdown, no feasible auto-match.
- * Creates a trip directly, bypassing the engine — always available even if
- * the engine is down (reliability NFR).
- */
 adminRouter.post("/override/assign", async (req, res) => {
   const parsed = overrideSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -133,6 +132,7 @@ adminRouter.post("/override/assign", async (req, res) => {
   const trip = await prisma.$transaction(async (tx) => {
     const t = await tx.trip.create({
       data: {
+        eventId: guest.eventId,
         driverId,
         type: type as TripType,
         originLat: guest.pickupLat!,
@@ -152,7 +152,6 @@ adminRouter.post("/override/assign", async (req, res) => {
   return res.status(201).json(trip);
 });
 
-/** Cancel a trip (breakdown etc.) — guests re-queue automatically. */
 adminRouter.post("/override/cancel-trip/:tripId", async (req, res) => {
   const trip = await prisma.trip.findUnique({
     where: { id: req.params.tripId! },
@@ -177,37 +176,100 @@ adminRouter.post("/override/cancel-trip/:tripId", async (req, res) => {
   return res.json({ ok: true });
 });
 
-// ---------- Event lifecycle ----------
 adminRouter.get("/event", async (_req, res) => {
-  const event =
-    (await prisma.eventState.findUnique({ where: { id: "event" } })) ??
-    (await prisma.eventState.create({ data: { id: "event" } }));
-  return res.json(event);
+  return res.json(await getActiveEvent());
 });
 
-/**
- * End (or reopen) the event. When CLOSED, guests can no longer raise ride
- * requests; in-progress trips and admin tools keep working for wrap-up.
- */
-adminRouter.post("/event/status", async (req, res) => {
-  const parsed = z.object({ status: z.enum(["ACTIVE", "CLOSED"]) }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const event = await prisma.eventState.upsert({
-    where: { id: "event" },
-    create: {
-      id: "event",
-      status: parsed.data.status,
-      closedAt: parsed.data.status === "CLOSED" ? new Date() : null,
-    },
-    update: {
-      status: parsed.data.status,
-      closedAt: parsed.data.status === "CLOSED" ? new Date() : null,
+adminRouter.get("/events", async (_req, res) => {
+  const events = await prisma.event.findMany({
+    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+    include: {
+      _count: { select: { guests: true, trips: true, accommodations: true } },
     },
   });
+  return res.json(events);
+});
+
+const createEventSchema = z.object({
+  name: z.string().min(1),
+  startsAt: z.coerce.date().optional(),
+  endsAt: z.coerce.date().optional(),
+  accommodations: z
+    .array(z.object({ name: z.string().min(1), lat: z.number(), lng: z.number() }))
+    .default([]),
+  places: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        kind: z.enum(["VENUE", "AIRPORT", "STATION", "PLACE"]),
+        lat: z.number(),
+        lng: z.number(),
+      }),
+    )
+    .default([]),
+});
+
+adminRouter.post("/events", async (req, res) => {
+  const parsed = createEventSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const active = await getActiveEvent();
+  if (active) {
+    return res.status(409).json({ error: "End the current event before starting a new one" });
+  }
+  if (parsed.data.startsAt && parsed.data.endsAt && parsed.data.endsAt <= parsed.data.startsAt) {
+    return res.status(400).json({ error: "End date must be after the start date" });
+  }
+  const event = await prisma.event.create({
+    data: {
+      name: parsed.data.name,
+      startsAt: parsed.data.startsAt ?? null,
+      endsAt: parsed.data.endsAt ?? null,
+    },
+  });
+  if (parsed.data.accommodations.length) {
+    await prisma.accommodation.createMany({
+      data: parsed.data.accommodations.map((a) => ({ ...a, eventId: event.id })),
+    });
+  }
+  if (parsed.data.places.length) {
+    await prisma.eventLocation.createMany({
+      data: parsed.data.places.map((p) => ({ ...p, eventId: event.id })),
+    });
+  }
+  return res.status(201).json(event);
+});
+
+adminRouter.post("/events/:id/close", async (req, res) => {
+  const event = await prisma.event.findUnique({ where: { id: req.params.id! } });
+  if (!event) return res.status(404).json({ error: "Event not found" });
+  if (event.status === "CLOSED") return res.status(409).json({ error: "Already closed" });
+  const updated = await prisma.event.update({
+    where: { id: event.id },
+    data: { status: "CLOSED", closedAt: new Date() },
+  });
+  return res.json(updated);
+});
+
+adminRouter.get("/events/:id", async (req, res) => {
+  const event = await prisma.event.findUnique({
+    where: { id: req.params.id! },
+    include: {
+      accommodations: true,
+      eventLocations: true,
+      guests: { include: { user: { select: { name: true, email: true } } } },
+      trips: {
+        include: {
+          driver: { include: { user: { select: { name: true } } } },
+          tripGuests: { include: { guest: { include: { user: { select: { name: true } } } } } },
+        },
+        orderBy: { assignedAt: "desc" },
+      },
+    },
+  });
+  if (!event) return res.status(404).json({ error: "Event not found" });
   return res.json(event);
 });
 
-/** Flag / unflag a priority guest (bumps them in the queue). */
 adminRouter.post("/override/priority/:guestId", async (req, res) => {
   const parsed = z.object({ priority: z.boolean() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });

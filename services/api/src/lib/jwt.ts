@@ -34,7 +34,8 @@ export async function issueRefreshToken(userId: string): Promise<string> {
   return token;
 }
 
-/** Rotates: verifies, revokes old, issues new pair. */
+const REFRESH_GRACE_MS = 60_000;
+
 export async function rotateRefreshToken(
   token: string,
 ): Promise<{ userId: string; refreshToken: string } | null> {
@@ -44,11 +45,14 @@ export async function rotateRefreshToken(
     return null;
   }
   const row = await prisma.refreshToken.findUnique({ where: { tokenHash: hash(token) } });
-  if (!row || row.revokedAt || row.expiresAt < new Date()) return null;
-  await prisma.refreshToken.update({
-    where: { id: row.id },
-    data: { revokedAt: new Date() },
-  });
+  if (!row || row.expiresAt < new Date()) return null;
+  if (row.revokedAt && Date.now() - row.revokedAt.getTime() > REFRESH_GRACE_MS) return null;
+  if (!row.revokedAt) {
+    await prisma.refreshToken.update({
+      where: { id: row.id },
+      data: { revokedAt: new Date() },
+    });
+  }
   const fresh = await issueRefreshToken(row.userId);
   return { userId: row.userId, refreshToken: fresh };
 }

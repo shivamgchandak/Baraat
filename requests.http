@@ -33,7 +33,7 @@ Content-Type: application/json
 POST {{base}}/auth/login
 Content-Type: application/json
 
-{ "email": "guest1@example.com", "password": "password123" }
+{ "email": "guest1@example.com", "password": "guest123" }
 
 ###
 @guestToken = {{guestLogin.response.body.accessToken}}
@@ -78,9 +78,9 @@ Content-Type: application/json
   "name": "Late Guest",
   "email": "lateguest@example.com",
   "password": "password123",
-  "pickupLat": 28.5562,
-  "pickupLng": 77.1,
-  "pickupLabel": "IGI Airport T3",
+  "pickupLat": 16.6647,
+  "pickupLng": 74.2894,
+  "pickupLabel": "Kolhapur Airport (Ujalaiwadi)",
   "groupSize": 2,
   "luggageCount": 2
 }
@@ -108,9 +108,9 @@ Content-Type: application/json
   "guestId": "REPLACE_GUEST_ID",
   "driverId": "REPLACE_DRIVER_ID",
   "type": "ON_DEMAND",
-  "destLat": 28.5286,
-  "destLng": 77.219,
-  "destLabel": "Saket Residency"
+  "destLat": 16.7093,
+  "destLng": 74.2349,
+  "destLabel": "Sayaji Hotel Kolhapur"
 }
 
 ### Cancel a trip (vehicle breakdown) — guests re-queue
@@ -167,7 +167,7 @@ POST {{base}}/drivers/me/location
 Authorization: Bearer {{driverToken}}
 Content-Type: application/json
 
-{ "lat": 28.545, "lng": 77.15 }
+{ "lat": 16.7000, "lng": 74.2600 }
 
 ### Go online
 POST {{base}}/drivers/me/presence

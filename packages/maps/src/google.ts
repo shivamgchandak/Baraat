@@ -8,10 +8,6 @@ function key(): string {
   return k;
 }
 
-/**
- * Distance Matrix: one call covers up to 25 origins x 25 destinations —
- * we batch driver→guest ETAs instead of N×M single calls (efficiency NFR).
- */
 export async function googleMatrix(
   origins: LatLng[],
   destinations: LatLng[],
@@ -34,10 +30,6 @@ export async function googleMatrix(
   );
 }
 
-/**
- * Directions with waypoint optimization — used for multi-stop routes and
- * detour insertion (optimize:true reorders intermediate stops).
- */
 export async function googleDirections(
   origin: LatLng,
   destination: LatLng,

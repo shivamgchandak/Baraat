@@ -1,6 +1,5 @@
 "use client";
 
-/** Fleet management: list with live status + manual driver onboarding. */
 import { useState } from "react";
 import { usePoll, api, timeAgo } from "@/lib/client";
 import type { Overview } from "@/lib/types";
@@ -11,17 +10,26 @@ export default function DriversPage() {
   const [showAdd, setShowAdd] = useState(false);
 
   const drivers = data?.drivers ?? [];
+  const noEvent = data ? !data.event : false;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold">Drivers {data && `(${drivers.length})`}</h1>
-        <button onClick={() => setShowAdd((v) => !v)} className="rounded-xl bg-brand-600 px-4 py-2.5 font-semibold text-white active:scale-95">
-          {showAdd ? "Close" : "+ Onboard driver"}
-        </button>
+        {!noEvent && (
+          <button onClick={() => setShowAdd((v) => !v)} className="rounded-xl bg-brand-600 px-4 py-2.5 font-semibold text-white active:scale-95">
+            {showAdd ? "Close" : "+ Onboard driver"}
+          </button>
+        )}
       </div>
 
-      {showAdd && <AddDriverForm onDone={() => { setShowAdd(false); void refresh(); }} />}
+      {noEvent && (
+        <a href="/admin/events" className="block rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+          Create an event first, then onboard drivers →
+        </a>
+      )}
+
+      {showAdd && !noEvent && <AddDriverForm onDone={() => { setShowAdd(false); void refresh(); }} />}
 
       <ul className="grid gap-2 lg:grid-cols-2">
         {drivers.map((d) => (
@@ -49,7 +57,7 @@ export default function DriversPage() {
 
 function AddDriverForm({ onDone }: { onDone: () => void }) {
   const [f, setF] = useState({
-    name: "", email: "", phone: "", password: "password123",
+    name: "", email: "", phone: "",
     vehicleNumber: "", seatCapacity: "4", luggageCapacity: "4",
   });
   const [err, setErr] = useState("");
@@ -65,7 +73,6 @@ function AddDriverForm({ onDone }: { onDone: () => void }) {
         name: f.name,
         email: f.email,
         phone: f.phone || undefined,
-        password: f.password,
         vehicleNumber: f.vehicleNumber,
         seatCapacity: Number(f.seatCapacity),
         luggageCapacity: Number(f.luggageCapacity),
@@ -85,15 +92,18 @@ function AddDriverForm({ onDone }: { onDone: () => void }) {
   return (
     <form onSubmit={submit} className="card grid gap-3 sm:grid-cols-2">
       <div><label className="label">Name *</label><input required className="input" value={f.name} onChange={set("name")} /></div>
-      <div><label className="label">Email *</label><input required type="email" className="input" value={f.email} onChange={set("email")} /></div>
+      <div><label className="label">Email * (they&apos;ll sign in with this)</label><input required type="email" className="input" value={f.email} onChange={set("email")} /></div>
       <div><label className="label">Phone</label><input className="input" value={f.phone} onChange={set("phone")} /></div>
-      <div><label className="label">Temp password *</label><input required className="input" value={f.password} onChange={set("password")} /></div>
-      <div><label className="label">Vehicle number *</label><input required className="input" placeholder="DL1RT1009" value={f.vehicleNumber} onChange={set("vehicleNumber")} /></div>
+      <div><label className="label">Vehicle number *</label><input required className="input" placeholder="MH09AB1009" value={f.vehicleNumber} onChange={set("vehicleNumber")} /></div>
       <div className="grid grid-cols-2 gap-2">
         <div><label className="label">Seats *</label><input required className="input" inputMode="numeric" value={f.seatCapacity} onChange={set("seatCapacity")} /></div>
         <div><label className="label">Luggage *</label><input required className="input" inputMode="numeric" value={f.luggageCapacity} onChange={set("luggageCapacity")} /></div>
       </div>
       {err && <p className="text-sm text-rose-600 sm:col-span-2">{err}</p>}
+      <p className="text-xs text-soft sm:col-span-2">
+        The driver is emailed their login: this email and the default password{" "}
+        <b>driver123</b> (they can change it later).
+      </p>
       <button type="submit" disabled={busy} className="btn-primary sm:col-span-2">
         {busy ? "Onboarding…" : "Onboard driver"}
       </button>

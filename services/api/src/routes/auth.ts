@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@baraat/db";
 import type { JwtPayload } from "@baraat/types";
 import { issueRefreshToken, rotateRefreshToken, signAccessToken } from "../lib/jwt.js";
+import { requireAuth } from "../middleware/auth.js";
 
 export const authRouter: Router = Router();
 
@@ -30,12 +31,7 @@ authRouter.post("/login", async (req, res) => {
     where: { email: parsed.data.email },
     include: { driver: true, guest: true },
   });
-  if (user && !user.passwordHash) {
-    return res.status(403).json({
-      error: "Account not activated yet — use the invitation link sent to your email",
-    });
-  }
-  if (!user || !(await bcrypt.compare(parsed.data.password, user.passwordHash!))) {
+  if (!user || !user.passwordHash || !(await bcrypt.compare(parsed.data.password, user.passwordHash))) {
     return res.status(401).json({ error: "Invalid credentials" });
   }
   const payload = (await buildPayload(user.id))!;
@@ -46,38 +42,33 @@ authRouter.post("/login", async (req, res) => {
   });
 });
 
-/** Validate an invitation token (the activate screen shows who it's for). */
-authRouter.get("/invite/:token", async (req, res) => {
-  const user = await prisma.user.findUnique({ where: { inviteToken: req.params.token! } });
-  if (!user) return res.status(404).json({ error: "Invalid or already-used invitation link" });
-  return res.json({ name: user.name, email: user.email });
-});
-
-/**
- * First-time activation: guest sets their password via the emailed link.
- * The link is single-use; afterwards they log in with email + password.
- */
-authRouter.post("/activate", async (req, res) => {
+authRouter.post("/change-password", requireAuth, async (req, res) => {
+  if (req.auth!.role !== "GUEST") {
+    return res.status(403).json({ error: "Only guests change passwords here" });
+  }
   const parsed = z
-    .object({ token: z.string().min(10), password: z.string().min(8) })
+    .object({ currentPassword: z.string().min(1), newPassword: z.string().min(8) })
     .safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const user = await prisma.user.findUnique({ where: { inviteToken: parsed.data.token } });
-  if (!user) return res.status(404).json({ error: "Invalid or already-used invitation link" });
+  const user = await prisma.user.findUnique({ where: { id: req.auth!.sub } });
+  if (!user?.passwordHash || !(await bcrypt.compare(parsed.data.currentPassword, user.passwordHash))) {
+    return res.status(401).json({ error: "Current password is incorrect" });
+  }
   await prisma.user.update({
     where: { id: user.id },
-    data: {
-      passwordHash: await bcrypt.hash(parsed.data.password, 10),
-      activatedAt: new Date(),
-      inviteToken: null, // single-use
-    },
+    data: { passwordHash: await bcrypt.hash(parsed.data.newPassword, 10) },
   });
-  const payload = (await buildPayload(user.id))!;
-  return res.json({
-    accessToken: signAccessToken(payload),
-    refreshToken: await issueRefreshToken(user.id),
-    user: { id: user.id, name: user.name, role: user.role, email: user.email },
+  return res.json({ ok: true });
+});
+
+authRouter.post("/push-token", requireAuth, async (req, res) => {
+  const parsed = z.object({ token: z.string().min(10) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  await prisma.user.update({
+    where: { id: req.auth!.sub },
+    data: { expoPushToken: parsed.data.token },
   });
+  return res.json({ ok: true });
 });
 
 authRouter.post("/refresh", async (req, res) => {

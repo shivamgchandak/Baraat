@@ -1,15 +1,4 @@
-/**
- * Maps adapter — one interface, two providers:
- *  - "google": Distance Matrix + Directions (live traffic) when
- *    GOOGLE_MAPS_API_KEY is set
- *  - "mock":  haversine × road factor × time-varying traffic model
- *    (deterministic, zero-cost; used for local dev / review / simulation)
- *
- * Efficiency NFR:
- *  - static legs (accommodation→venue etc.) cached in KV with a long TTL
- *  - dynamic legs cached for 60s (traffic-fresh but dedupes engine ticks)
- *  - matrix calls batched, never one-call-per-pair
- */
+
 import type { EtaResult, LatLng } from "@baraat/types";
 import { getKv } from "@baraat/kv";
 import { mockEta } from "./mock.js";
@@ -17,6 +6,8 @@ import { googleDirections, googleMatrix } from "./google.js";
 
 export { haversineMeters, mockEta } from "./mock.js";
 export { geocode, reverseGeocode, type GeocodeHit } from "./geocode.js";
+export { routeLeg, decodePolyline, type RouteLeg } from "./route.js";
+export { KOLHAPUR_PLACES, searchKnownPlaces, type KnownPlace } from "./places.js";
 
 const DYNAMIC_TTL_S = 60;
 const STATIC_TTL_S = 60 * 60 * 6;
@@ -26,7 +17,7 @@ function usingGoogle(): boolean {
 }
 
 function cacheKey(a: LatLng, b: LatLng): string {
-  // ~110m grid: close-enough points share a cache entry
+
   const r = (n: number) => n.toFixed(3);
   return `eta:${r(a.lat)},${r(a.lng)}:${r(b.lat)},${r(b.lng)}`;
 }
@@ -60,14 +51,13 @@ export async function eta(
   return { seconds, meters, provider: usingGoogle() ? "google" : "mock", cached: false };
 }
 
-/** Bulk driver→guest ETAs. Batched for Google; loop for mock. */
 export async function etaMatrix(
   origins: LatLng[],
   destinations: LatLng[],
 ): Promise<{ seconds: number; meters: number }[][]> {
   if (origins.length === 0 || destinations.length === 0) return [];
   if (usingGoogle()) {
-    // Google caps 25x25 per request; chunk if needed.
+
     const CHUNK = 25;
     const result: { seconds: number; meters: number }[][] = origins.map(() => []);
     for (let oi = 0; oi < origins.length; oi += CHUNK) {
@@ -85,11 +75,6 @@ export async function etaMatrix(
   return origins.map((o) => destinations.map((d) => mockEta(o, d)));
 }
 
-/**
- * Multi-stop route: returns ordered stops + cumulative seconds.
- * Google path uses Directions optimizeWaypoints; mock path uses
- * nearest-neighbour ordering (fine at ≤3 intermediate stops).
- */
 export async function orderedRoute(
   origin: LatLng,
   stops: LatLng[],
@@ -110,7 +95,7 @@ export async function orderedRoute(
       totalMeters: g.legMeters.reduce((a, b) => a + b, 0),
     };
   }
-  // Mock: greedy nearest-neighbour from origin.
+
   const remaining = stops.map((p, i) => ({ p, i }));
   const order: number[] = [];
   let cur = origin;

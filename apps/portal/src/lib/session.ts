@@ -1,7 +1,4 @@
-/**
- * Thin-server session: the browser never sees tokens. Login stores the
- * backend's JWT pair in an httpOnly cookie; the proxy attaches it.
- */
+
 import { cookies } from "next/headers";
 
 export const SESSION_COOKIE = "baraat_session";

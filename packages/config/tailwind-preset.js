@@ -1,4 +1,3 @@
-/** Shared Tailwind preset for the portal (Phase 2). Small, consistent design system. */
 module.exports = {
   theme: {
     extend: {

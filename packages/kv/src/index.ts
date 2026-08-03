@@ -1,11 +1,4 @@
-/**
- * KV abstraction: Redis when REDIS_URL is set, otherwise an in-process
- * fallback. Gives us the wait-queue (sorted set) and the distance cache
- * without making Redis a hard dependency for local dev/review.
- * Graceful degradation is an explicit NFR: if Redis dies mid-event, the
- * system keeps working on the in-memory fallback (queue is rebuilt from
- * Postgres state on worker restart — DB remains the source of truth).
- */
+
 import { Redis } from "ioredis";
 
 export interface Kv {
@@ -13,7 +6,7 @@ export interface Kv {
   set(key: string, value: string, ttlSeconds?: number): Promise<void>;
   zadd(key: string, score: number, member: string): Promise<void>;
   zrem(key: string, member: string): Promise<void>;
-  /** ascending by score */
+
   zrangeWithScores(key: string, start: number, stop: number): Promise<{ member: string; score: number }[]>;
   zscore(key: string, member: string): Promise<number | null>;
 }

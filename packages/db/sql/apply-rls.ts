@@ -1,4 +1,4 @@
-/** Applies sql/rls.sql to the database pointed at by DIRECT_URL/DATABASE_URL. */
+
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,8 +7,6 @@ import { prisma } from "../src/index.js";
 const here = dirname(fileURLToPath(import.meta.url));
 const sql = readFileSync(join(here, "rls.sql"), "utf8");
 
-// Split on statement boundaries that end with ';' at line end.
-// $$-quoted function bodies are handled by grouping.
 const statements: string[] = [];
 let buf = "";
 let inDollar = false;

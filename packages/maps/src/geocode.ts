@@ -1,9 +1,4 @@
-/**
- * Forward geocoding for the ops UI ("search a place, get coordinates").
- * Provider: Google Geocoding API when GOOGLE_MAPS_API_KEY is set,
- * otherwise OpenStreetMap Nominatim (free, no key).
- * Results cached 6h — repeat searches cost nothing (efficiency NFR).
- */
+
 import { getKv } from "@baraat/kv";
 
 export interface GeocodeHit {
@@ -50,7 +45,7 @@ export async function geocode(query: string): Promise<GeocodeHit[]> {
       }
     }
   } catch {
-    // Geocoder unreachable — return what we have (empty); UI degrades gracefully.
+
     return [];
   }
 
@@ -58,7 +53,6 @@ export async function geocode(query: string): Promise<GeocodeHit[]> {
   return results;
 }
 
-/** Reverse geocoding: coordinates -> human-readable label ("current location"). */
 export async function reverseGeocode(lat: number, lng: number): Promise<string> {
   const kv = getKv();
   const key = `rgeo:${lat.toFixed(4)},${lng.toFixed(4)}`;
@@ -83,7 +77,6 @@ export async function reverseGeocode(lat: number, lng: number): Promise<string> 
       }
     }
   } catch {
-    // fall through with coordinate label
   }
   await kv.set(key, label, TTL_S);
   return label;

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 
-/** One-tap light/dark switch. Defaults to light; remembered per device. */
 export function ThemeToggle() {
   const [dark, setDark] = useState(false);
 

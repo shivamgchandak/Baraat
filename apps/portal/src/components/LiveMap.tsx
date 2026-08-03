@@ -1,9 +1,5 @@
 "use client";
 
-/**
- * Live fleet map (Leaflet + OpenStreetMap — no API key needed).
- * Driver markers are colored by status; guests waiting shown as pins.
- */
 import dynamic from "next/dynamic";
 import { useMemo } from "react";
 
@@ -32,7 +28,7 @@ const COLORS: Record<string, string> = {
 };
 
 function InnerMap({ drivers, waiting }: { drivers: MapDriver[]; waiting: MapPoint[] }) {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+
   const { MapContainer, TileLayer, CircleMarker, Tooltip } = require("react-leaflet");
 
   const located = drivers.filter((d) => d.lat != null && d.lng != null);
@@ -41,7 +37,7 @@ function InnerMap({ drivers, waiting }: { drivers: MapDriver[]; waiting: MapPoin
   const center: [number, number] =
     located.length > 0
       ? [located[0]!.lat!, located[0]!.lng!]
-      : [28.5245, 77.2066]; // venue fallback
+      : [16.7093, 74.2349];
 
   return (
     <MapContainer center={center} zoom={12} scrollWheelZoom>

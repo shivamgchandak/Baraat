@@ -1,0 +1,2 @@
+ALTER TABLE "Trip" ADD COLUMN "boardingOtpHash" TEXT;
+ALTER TABLE "Trip" ADD COLUMN "boardingOtpAt" TIMESTAMP(3);

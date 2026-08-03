@@ -1,39 +1,51 @@
 import { Router } from "express";
 import { z } from "zod";
-import { prisma } from "@baraat/db";
-import { geocode, reverseGeocode } from "@baraat/maps";
+import { prisma, getActiveEventId } from "@baraat/db";
+import { geocode, reverseGeocode, searchKnownPlaces } from "@baraat/maps";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
 export const locationsRouter: Router = Router();
 locationsRouter.use(requireAuth);
 
-/**
- * Location search for the ops UI: known event places (venue, airport,
- * station, hotels) matched first, then geocoder results. Ops never types
- * coordinates by hand.
- */
+locationsRouter.get("/saved", async (_req, res) => {
+  const eventId = await getActiveEventId();
+  if (!eventId) return res.json({ accommodations: [], places: [] });
+  const [accommodations, places] = await Promise.all([
+    prisma.accommodation.findMany({ where: { eventId } }),
+    prisma.eventLocation.findMany({ where: { eventId } }),
+  ]);
+  return res.json({ accommodations, places });
+});
+
 locationsRouter.get("/search", async (req, res) => {
   const q = String(req.query.q ?? "").trim();
   if (q.length < 2) return res.json([]);
   const needle = q.toLowerCase();
 
+  const eventId = await getActiveEventId();
   const [accommodations, eventLocations] = await Promise.all([
-    prisma.accommodation.findMany(),
-    prisma.eventLocation.findMany(),
+    prisma.accommodation.findMany({ where: eventId ? { eventId } : undefined }),
+    prisma.eventLocation.findMany({ where: eventId ? { eventId } : undefined }),
   ]);
   const known = [
     ...eventLocations.map((l) => ({ label: l.name, lat: l.lat, lng: l.lng, kind: l.kind })),
     ...accommodations.map((a) => ({ label: a.name, lat: a.lat, lng: a.lng, kind: "HOTEL" })),
   ].filter((l) => l.label.toLowerCase().includes(needle));
 
-  const external = await geocode(q);
-  const externalTagged = external.map((e) => ({ ...e, kind: "SEARCH" }));
+  const curated = searchKnownPlaces(q).map((p) => ({ ...p, kind: "PLACE" }));
 
-  // Known event places first; cap total to keep the dropdown tidy.
-  return res.json([...known, ...externalTagged].slice(0, 8));
+  const external = (await geocode(q)).map((e) => ({ ...e, kind: "SEARCH" }));
+
+  const seen = new Set<string>();
+  const merged = [...known, ...curated, ...external].filter((r) => {
+    const key = r.label.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return res.json(merged.slice(0, 8));
 });
 
-/** Reverse geocode for "use my current location" (portal + guest app). */
 locationsRouter.get("/reverse", async (req, res) => {
   const lat = Number(req.query.lat);
   const lng = Number(req.query.lng);
