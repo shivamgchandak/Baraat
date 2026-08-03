@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Pressable, SafeAreaView, ScrollView, StatusBar, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 import { api, hasSession } from "./src/api";
 import { registerForPush } from "./src/push";
@@ -30,8 +31,9 @@ const TABS: { key: Tab; icon: string; label: string }[] = [
   { key: "account", icon: "👤", label: "Account" },
 ];
 
-export default function App() {
+function AppInner() {
   const t = useTheme();
+  const insets = useSafeAreaInsets();
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [tab, setTab] = useState<Tab>("ride");
   const [ctx, setCtx] = useState<Ctx | null>(null);
@@ -75,7 +77,7 @@ export default function App() {
   const eventActive = ctx?.eventActive ?? false;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: t.surface, paddingTop: StatusBar.currentHeight ?? 0 }}>
+    <View style={{ flex: 1, backgroundColor: t.surface, paddingTop: insets.top }}>
       <ExpoStatusBar style={t.dark ? "light" : "dark"} />
 
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 10 }}>
@@ -106,7 +108,7 @@ export default function App() {
         {tab === "account" && <AccountScreen onSignOut={() => setSignedIn(false)} />}
       </ScrollView>
 
-      <View style={{ flexDirection: "row", borderTopWidth: 1, borderTopColor: t.edge, backgroundColor: t.card }}>
+      <View style={{ flexDirection: "row", borderTopWidth: 1, borderTopColor: t.edge, backgroundColor: t.card, paddingBottom: insets.bottom }}>
         {TABS.map((item) => {
           const active = tab === item.key;
           return (
@@ -119,6 +121,14 @@ export default function App() {
           );
         })}
       </View>
-    </SafeAreaView>
+    </View>
+  );
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppInner />
+    </SafeAreaProvider>
   );
 }
