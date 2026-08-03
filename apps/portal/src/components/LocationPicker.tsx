@@ -1,10 +1,5 @@
 "use client";
 
-/**
- * Search-first location input: type a place name, pick from a dropdown.
- * Known event places (venue ✦ hotels ✦ airport/station) rank first,
- * then map search results. No coordinates ever shown to the user.
- */
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/client";
 
@@ -44,7 +39,6 @@ export function LocationPicker({
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside tap.
   useEffect(() => {
     function onDown(e: MouseEvent | TouchEvent) {
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
@@ -59,7 +53,7 @@ export function LocationPicker({
 
   function handleInput(text: string) {
     setQ(text);
-    onChange(null); // typing invalidates the previous pick
+    onChange(null);
     if (debounce.current) clearTimeout(debounce.current);
     if (text.trim().length < 2) {
       setHits([]);
@@ -91,7 +85,7 @@ export function LocationPicker({
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude: lat, longitude: lng } = pos.coords;
-        // Reverse-geocode so ops sees a readable place name, not numbers.
+
         const res = await api<{ label: string }>(`/locations/reverse?lat=${lat}&lng=${lng}`);
         const label = res.ok && res.data?.label ? res.data.label : "Current location";
         onChange({ label, lat, lng });

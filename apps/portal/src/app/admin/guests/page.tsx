@@ -1,6 +1,5 @@
 "use client";
 
-/** Guest management: list + add + manual corrections + priority flag. */
 import { useMemo, useState } from "react";
 import { usePoll, api } from "@/lib/client";
 import type { OvGuest } from "@/lib/types";
@@ -22,10 +21,13 @@ const FILTERS = ["ALL", "WAITING", "ASSIGNED", "IN_TRANSIT", "COMPLETED"] as con
 
 export default function GuestsPage() {
   const { data: guests, error, refresh } = usePoll<GuestRow[]>("/guests", 6000);
+  const { data: event } = usePoll<{ id: string; startsAt: string | null; endsAt: string | null } | null>("/admin/event", 10000);
+  const noEvent = event === null;
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("ALL");
   const [showAdd, setShowAdd] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [editPickup, setEditPickup] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     let list = guests ?? [];
@@ -47,39 +49,32 @@ export default function GuestsPage() {
     setBusyId(null);
   }
 
-  async function reinvite(g: GuestRow) {
-    setBusyId(g.id);
-    const res = await api<{ inviteLink?: string; emailSent?: boolean }>(
-      `/guests/${g.id}/reinvite`,
-      { method: "POST", body: JSON.stringify({}) },
-    );
-    setBusyId(null);
-    if (res.ok && res.data.inviteLink) {
-      try {
-        await navigator.clipboard.writeText(res.data.inviteLink);
-        alert(
-          res.data.emailSent
-            ? "Invitation email sent again. Link also copied to clipboard."
-            : "New invite link copied to clipboard — share it with the guest.",
-        );
-      } catch {
-        alert(`Invite link:\n${res.data.inviteLink}`);
-      }
-    }
-  }
-
   if (!guests && error) return <ConnLost />;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold">Guests {guests && `(${guests.length})`}</h1>
-        <button onClick={() => setShowAdd((v) => !v)} className="rounded-xl bg-brand-600 px-4 py-2.5 font-semibold text-white active:scale-95">
-          {showAdd ? "Close" : "+ Add guest"}
-        </button>
+        {!noEvent && (
+          <button onClick={() => setShowAdd((v) => !v)} className="rounded-xl bg-brand-600 px-4 py-2.5 font-semibold text-white active:scale-95">
+            {showAdd ? "Close" : "+ Add guest"}
+          </button>
+        )}
       </div>
 
-      {showAdd && <AddGuestForm onDone={() => { setShowAdd(false); void refresh(); }} />}
+      {noEvent && (
+        <a href="/admin/events" className="block rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+          Create an event first, then add guests →
+        </a>
+      )}
+
+      {showAdd && !noEvent && (
+        <AddGuestForm
+          startsAt={event?.startsAt ?? null}
+          endsAt={event?.endsAt ?? null}
+          onDone={() => { setShowAdd(false); void refresh(); }}
+        />
+      )}
 
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
@@ -103,45 +98,47 @@ export default function GuestsPage() {
 
       <ul className="space-y-2">
         {filtered.map((g) => (
-          <li key={g.id} className="card flex flex-wrap items-center justify-between gap-2">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 font-semibold">
-                {g.priority && <span title="Priority guest">⭐</span>}
-                {g.user.name}
-                <span className="text-xs font-normal text-soft">×{g.groupSize}</span>
+          <li key={g.id} className="card">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 font-semibold">
+                  {g.priority && <span title="Priority guest">⭐</span>}
+                  {g.user.name}
+                  <span className="text-xs font-normal text-soft">×{g.groupSize}</span>
+                </div>
+                <div className="truncate text-sm text-soft">
+                  {g.pickupLabel ?? "No pickup set"} → {g.accommodation?.name ?? "No hotel"}
+                  {g.flightTrainEta &&
+                    ` · ETA ${new Date(g.flightTrainEta).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+                </div>
               </div>
-              <div className="truncate text-sm text-soft">
-                {g.pickupLabel ?? "No pickup set"} → {g.accommodation?.name ?? "No hotel"}
-                {g.flightTrainEta &&
-                  ` · ETA ${new Date(g.flightTrainEta).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {g.user.activatedAt ? null : (
-                <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-                  NOT ACTIVATED
-                </span>
-              )}
-              <StatusBadge status={g.status} />
-              {!g.user.activatedAt && (
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge status={g.status} />
                 <button
-                  onClick={() => reinvite(g)}
+                  onClick={() => setEditPickup(editPickup === g.id ? null : g.id)}
+                  className="rounded-lg border border-edge bg-card px-3 py-1.5 text-sm font-medium"
+                  title="Set / change pickup location"
+                >
+                  📍 Pickup
+                </button>
+                <button
+                  onClick={() => togglePriority(g)}
                   disabled={busyId === g.id}
                   className="rounded-lg border border-edge bg-card px-3 py-1.5 text-sm font-medium"
-                  title="Send a fresh invitation link"
+                  title="Toggle priority"
                 >
-                  Re-invite ✉️
+                  {g.priority ? "Unset ⭐" : "Set ⭐"}
                 </button>
-              )}
-              <button
-                onClick={() => togglePriority(g)}
-                disabled={busyId === g.id}
-                className="rounded-lg border border-edge bg-card px-3 py-1.5 text-sm font-medium"
-                title="Toggle priority"
-              >
-                {g.priority ? "Unset ⭐" : "Set ⭐"}
-              </button>
+              </div>
             </div>
+            {editPickup === g.id && (
+              <EditPickup
+                guestId={g.id}
+                current={g.pickupLabel}
+                currentDrop={g.dropLabel ?? null}
+                onDone={() => { setEditPickup(null); void refresh(); }}
+              />
+            )}
           </li>
         ))}
         {filtered.length === 0 && (
@@ -152,31 +149,110 @@ export default function GuestsPage() {
   );
 }
 
-function AddGuestForm({ onDone }: { onDone: () => void }) {
+function EditPickup({
+  guestId,
+  current,
+  currentDrop,
+  onDone,
+}: {
+  guestId: string;
+  current: string | null;
+  currentDrop: string | null;
+  onDone: () => void;
+}) {
+  const [pickup, setPickup] = useState<PickedLocation | null>(null);
+  const [drop, setDrop] = useState<PickedLocation | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function save() {
+    if (!pickup && !drop) {
+      setErr("Pick a new pickup and/or drop location");
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    const body: Record<string, unknown> = {};
+    if (pickup) {
+      body.pickupLat = pickup.lat;
+      body.pickupLng = pickup.lng;
+      body.pickupLabel = pickup.label;
+    }
+    if (drop) {
+      body.dropLat = drop.lat;
+      body.dropLng = drop.lng;
+      body.dropLabel = drop.label;
+    }
+    const res = await api<{ error?: unknown }>(`/guests/${guestId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setErr(typeof res.data?.error === "string" ? String(res.data.error) : "Couldn't update");
+      return;
+    }
+    onDone();
+  }
+
+  return (
+    <div className="mt-3 space-y-2 border-t border-edge pt-3">
+      <label className="label">Pickup location {current ? `(current: ${current})` : ""}</label>
+      <LocationPicker
+        value={pickup}
+        onChange={setPickup}
+        placeholder="Search a place, or use 📍 current location…"
+      />
+      <label className="label">Drop location {currentDrop ? `(current: ${currentDrop})` : "(optional)"}</label>
+      <LocationPicker
+        value={drop}
+        onChange={setDrop}
+        placeholder="Search venue, hotel, or any place…"
+      />
+      {err && <p className="text-sm text-rose-600">{err}</p>}
+      <button onClick={save} disabled={busy} className="btn-primary">
+        {busy ? "Saving…" : "Save location(s)"}
+      </button>
+    </div>
+  );
+}
+
+function toLocalInput(iso: string | null): string | undefined {
+  if (!iso) return undefined;
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function AddGuestForm({ onDone, startsAt, endsAt }: { onDone: () => void; startsAt: string | null; endsAt: string | null }) {
   const [f, setF] = useState({
-    name: "", email: "", phone: "", groupSize: "1", luggageCount: "0",
+    name: "", email: "", phone: "", groupSize: "1", luggageCount: "0", pickupAt: "",
   });
   const [pickup, setPickup] = useState<PickedLocation | null>(null);
+  const [drop, setDrop] = useState<PickedLocation | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const [invite, setInvite] = useState<{ link: string; emailSent: boolean } | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setErr("");
-    const res = await api<{ error?: unknown; inviteLink?: string; emailSent?: boolean }>("/guests", {
+    const res = await api<{ error?: unknown }>("/guests", {
       method: "POST",
       body: JSON.stringify({
         name: f.name,
         email: f.email,
         phone: f.phone || undefined,
-        // no password: the guest sets their own via the invitation link
         pickupLabel: pickup?.label,
         pickupLat: pickup?.lat,
         pickupLng: pickup?.lng,
+        dropLabel: drop?.label,
+        dropLat: drop?.lat,
+        dropLng: drop?.lng,
         groupSize: Number(f.groupSize),
         luggageCount: Number(f.luggageCount),
+        pickupAt: f.pickupAt ? new Date(f.pickupAt).toISOString() : undefined,
+        flightTrainEta: f.pickupAt ? new Date(f.pickupAt).toISOString() : undefined,
       }),
     });
     setBusy(false);
@@ -184,39 +260,11 @@ function AddGuestForm({ onDone }: { onDone: () => void }) {
       setErr(typeof res.data?.error === "string" ? String(res.data.error) : "Check the fields and try again");
       return;
     }
-    if (res.data.inviteLink) {
-      setInvite({ link: res.data.inviteLink, emailSent: Boolean(res.data.emailSent) });
-    } else {
-      onDone();
-    }
+    onDone();
   }
 
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setF((prev) => ({ ...prev, [k]: e.target.value }));
-
-  if (invite) {
-    return (
-      <div className="card space-y-3 text-center">
-        <div className="text-3xl">✉️</div>
-        <p className="font-semibold">Guest added — invitation ready</p>
-        <p className="text-sm text-soft">
-          {invite.emailSent
-            ? "An invitation email was sent. They'll set their password via the link and sign in with their email."
-            : "Email sending isn't configured, so share this activation link with the guest (WhatsApp/SMS works):"}
-        </p>
-        <div className="break-all rounded-lg bg-surface p-3 text-left text-xs">{invite.link}</div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => { void navigator.clipboard?.writeText(invite.link); }}
-            className="btn-secondary"
-          >
-            Copy link
-          </button>
-          <button onClick={onDone} className="btn-primary">Done</button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <form onSubmit={submit} className="card grid gap-3 sm:grid-cols-2">
@@ -229,17 +277,40 @@ function AddGuestForm({ onDone }: { onDone: () => void }) {
         <LocationPicker
           value={pickup}
           onChange={setPickup}
-          placeholder="Search airport, station, or any place…"
+          placeholder="Search airport, station, or any place in Kolhapur…"
         />
+      </div>
+      <div className="sm:col-span-2">
+        <label className="label">Drop location (optional — defaults to their hotel)</label>
+        <LocationPicker
+          value={drop}
+          onChange={setDrop}
+          placeholder="Search venue, hotel, or any place in Kolhapur…"
+        />
+      </div>
+      <div className="sm:col-span-2">
+        <label className="label">Pickup date &amp; time (flight/train arrival)</label>
+        <input
+          type="datetime-local"
+          className="input"
+          value={f.pickupAt}
+          min={toLocalInput(startsAt)}
+          max={toLocalInput(endsAt)}
+          onChange={set("pickupAt")}
+        />
+        {(startsAt || endsAt) && (
+          <p className="mt-1 text-xs text-soft">Must be within the event window.</p>
+        )}
       </div>
       <div><label className="label">Group size</label><input className="input" inputMode="numeric" value={f.groupSize} onChange={set("groupSize")} /></div>
       <div><label className="label">Luggage</label><input className="input" inputMode="numeric" value={f.luggageCount} onChange={set("luggageCount")} /></div>
       {err && <p className="text-sm text-rose-600 sm:col-span-2">{err}</p>}
       <p className="text-xs text-soft sm:col-span-2">
-        The guest receives an invitation to set their own password — no password to manage here.
+        The guest signs into the app with this email and the default password{" "}
+        <b>guest123</b> (they can change it in the app).
       </p>
       <button type="submit" disabled={busy} className="btn-primary sm:col-span-2">
-        {busy ? "Adding…" : "Add guest & send invite"}
+        {busy ? "Adding…" : "Add guest"}
       </button>
     </form>
   );

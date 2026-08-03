@@ -5,18 +5,39 @@ import { z } from "zod";
 import { prisma, GuestStatus, Role, TripStatus } from "@baraat/db";
 import { withRls } from "@baraat/db/src/rls.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { sendInviteEmail } from "../lib/mailer.js";
+import { sendCredentialsEmail } from "../lib/mailer.js";
+import { getActiveEvent, eventPhase } from "@baraat/db";
+
+const DEFAULT_GUEST_PASSWORD = "guest123";
+
+function pickupOutsideWindow(
+  event: { startsAt: Date | null; endsAt: Date | null },
+  pickupAt: Date | undefined,
+): string | null {
+  if (!pickupAt) return null;
+  const fmt = (d: Date) => d.toLocaleString();
+  if (event.startsAt && pickupAt < event.startsAt) {
+    return `Pickup time must be on/after the event start (${fmt(event.startsAt)})`;
+  }
+  if (event.endsAt && pickupAt > event.endsAt) {
+    return `Pickup time must be on/before the event end (${fmt(event.endsAt)})`;
+  }
+  return null;
+}
 
 export const guestsRouter: Router = Router();
 guestsRouter.use(requireAuth);
 
-// ---------- ADMIN: register / manually update guests ----------
 const guestDetails = {
   pickupLat: z.number().optional(),
   pickupLng: z.number().optional(),
   pickupLabel: z.string().optional(),
+  dropLat: z.number().optional(),
+  dropLng: z.number().optional(),
+  dropLabel: z.string().optional(),
   accommodationId: z.string().optional(),
   flightTrainEta: z.coerce.date().optional(),
+  pickupAt: z.coerce.date().optional(),
   groupSize: z.number().int().min(1).max(30).optional(),
   luggageCount: z.number().int().min(0).max(60).optional(),
   deadline: z.coerce.date().optional(),
@@ -27,8 +48,7 @@ const createGuestSchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
   phone: z.string().optional(),
-  /** Optional: when omitted, the guest gets an invitation link and sets
-   *  their own password on first login (the normal flow). */
+
   password: z.string().min(8).optional(),
   ...guestDetails,
 });
@@ -37,67 +57,59 @@ guestsRouter.post("/", requireRole("ADMIN"), async (req, res) => {
   const parsed = createGuestSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { name, email, phone, password, ...details } = parsed.data;
+  const active = await getActiveEvent();
+  if (!active) {
+    return res.status(409).json({ error: "Create an event first — no active event" });
+  }
+  const windowErr = pickupOutsideWindow(active, details.pickupAt);
+  if (windowErr) return res.status(400).json({ error: windowErr });
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) return res.status(409).json({ error: "Email already registered" });
 
-  const inviteToken = password ? null : crypto.randomBytes(24).toString("base64url");
+  const plainPassword = password ?? DEFAULT_GUEST_PASSWORD;
+
+  const queued = details.pickupLat != null && details.pickupLng != null;
   const user = await prisma.user.create({
     data: {
       name,
       email,
       phone,
-      passwordHash: password ? await bcrypt.hash(password, 10) : null,
+      passwordHash: await bcrypt.hash(plainPassword, 10),
       role: Role.GUEST,
-      inviteToken,
-      invitedAt: inviteToken ? new Date() : null,
-      activatedAt: password ? new Date() : null,
-      guest: { create: { ...details } },
+      activatedAt: new Date(),
+      guest: {
+        create: {
+          ...details,
+          eventId: active.id,
+          waitingSince: queued ? (details.pickupAt ?? new Date()) : null,
+        },
+      },
     },
     include: { guest: true },
   });
 
-  let inviteLink: string | null = null;
-  let emailSent = false;
-  if (inviteToken) {
-    const origin = process.env.PORTAL_ORIGIN ?? "http://localhost:3000";
-    inviteLink = `${origin}/activate?token=${inviteToken}`;
-    emailSent = (await sendInviteEmail({ to: email, name, inviteLink })).sent;
-  }
-  return res.status(201).json({ id: user.guest!.id, userId: user.id, inviteLink, emailSent });
+  const { sent } = await sendCredentialsEmail({ to: email, name, role: "guest", password: plainPassword });
+  return res.status(201).json({
+    id: user.guest!.id,
+    userId: user.id,
+    defaultPassword: password ? null : DEFAULT_GUEST_PASSWORD,
+    emailSent: sent,
+  });
 });
 
-/** Re-issue an invitation (guest lost the email / link expired-by-use). */
-guestsRouter.post("/:guestId/reinvite", requireRole("ADMIN"), async (req, res) => {
-  const guest = await prisma.guest.findUnique({
-    where: { id: req.params.guestId! },
-    include: { user: true },
-  });
-  if (!guest) return res.status(404).json({ error: "Guest not found" });
-  if (guest.user.activatedAt) {
-    return res.status(409).json({ error: "Guest already activated their account" });
-  }
-  const inviteToken = crypto.randomBytes(24).toString("base64url");
-  await prisma.user.update({
-    where: { id: guest.userId },
-    data: { inviteToken, invitedAt: new Date() },
-  });
-  const origin = process.env.PORTAL_ORIGIN ?? "http://localhost:3000";
-  const inviteLink = `${origin}/activate?token=${inviteToken}`;
-  const { sent } = await sendInviteEmail({
-    to: guest.user.email,
-    name: guest.user.name,
-    inviteLink,
-  });
-  return res.json({ inviteLink, emailSent: sent });
-});
-
-/** Manual correction: walk-ins, changed flights — admin edits the record. */
 guestsRouter.patch("/:guestId", requireRole("ADMIN"), async (req, res) => {
   const parsed = z.object(guestDetails).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const existing = await prisma.guest.findUnique({ where: { id: req.params.guestId! } });
   if (!existing) {
     return res.status(404).json({ error: "Guest not found — use the guest id, not the user id" });
+  }
+  if (parsed.data.pickupAt && existing.eventId) {
+    const ev = await prisma.event.findUnique({ where: { id: existing.eventId } });
+    if (ev) {
+      const windowErr = pickupOutsideWindow(ev, parsed.data.pickupAt);
+      if (windowErr) return res.status(400).json({ error: windowErr });
+    }
   }
   const guest = await prisma.guest.update({
     where: { id: existing.id },
@@ -119,7 +131,39 @@ guestsRouter.get("/", requireRole("ADMIN"), async (_req, res) => {
   return res.json(guests);
 });
 
-// ---------- GUEST: own record (RLS-scoped) ----------
+guestsRouter.get("/me/context", requireRole("GUEST"), async (req, res) => {
+  const active = await getActiveEvent();
+  const guest = await prisma.guest.findUnique({ where: { id: req.auth!.guestId! } });
+  const inEvent = Boolean(active && guest && guest.eventId === active.id);
+  const [activeRide, pending] = await Promise.all([
+    prisma.tripGuest.findFirst({
+      where: {
+        guestId: req.auth!.guestId!,
+        trip: { status: { in: [TripStatus.ASSIGNED, TripStatus.ACCEPTED, TripStatus.ARRIVED_PICKUP, TripStatus.BOARDED] } },
+      },
+    }),
+    prisma.rideRequest.findFirst({ where: { guestId: req.auth!.guestId!, status: "PENDING" } }),
+  ]);
+
+  const waitingForDriver =
+    !activeRide &&
+    guest?.status === GuestStatus.WAITING &&
+    guest?.waitingSince != null &&
+    guest?.pickupLat != null;
+  const phase = inEvent ? eventPhase(active) : "none";
+  return res.json({
+
+    eventActive: phase === "live",
+    eventPhase: phase,
+    eventName: inEvent ? active!.name : null,
+    startsAt: inEvent ? active!.startsAt : null,
+    endsAt: inEvent ? active!.endsAt : null,
+    hasActiveRide: Boolean(activeRide),
+    waitingForDriver: Boolean(waitingForDriver),
+    hasPendingRequest: Boolean(pending),
+  });
+});
+
 guestsRouter.get("/me", requireRole("GUEST"), async (req, res) => {
   const me = await withRls(req.auth!.sub, "GUEST", (tx) =>
     tx.guest.findUnique({
@@ -134,10 +178,6 @@ guestsRouter.get("/me", requireRole("GUEST"), async (req, res) => {
   return res.json(me);
 });
 
-/**
- * Guest's current ride: driver name, vehicle number, live location + ETA.
- * The guest never sees the driver pool — only the assigned match.
- */
 guestsRouter.get("/me/ride", requireRole("GUEST"), async (req, res) => {
   const tg = await withRls(req.auth!.sub, "GUEST", (tx) =>
     tx.tripGuest.findFirst({
@@ -182,23 +222,81 @@ guestsRouter.get("/me/ride", requireRole("GUEST"), async (req, res) => {
   });
 });
 
-// ---------- GUEST: on-demand ride request ----------
+guestsRouter.post("/me/ride/otp", requireRole("GUEST"), async (req, res) => {
+  const tg = await prisma.tripGuest.findFirst({
+    where: {
+      guestId: req.auth!.guestId!,
+      trip: { status: TripStatus.ARRIVED_PICKUP },
+    },
+    include: { trip: true },
+  });
+  if (!tg) {
+    return res.status(409).json({
+      error: "You can generate a boarding code once your driver has arrived at pickup",
+    });
+  }
+  const otp = String(Math.floor(1000 + Math.random() * 9000));
+  await prisma.trip.update({
+    where: { id: tg.tripId },
+    data: {
+      boardingOtpHash: crypto.createHash("sha256").update(otp).digest("hex"),
+      boardingOtpAt: new Date(),
+    },
+  });
+  return res.json({ otp });
+});
+
 guestsRouter.post("/me/requests", requireRole("GUEST"), async (req, res) => {
   const parsed = z
     .object({
       note: z.string().max(500).optional(),
-      // Optional live pickup (guest app "use my current location" — Phase 3):
       pickupLat: z.number().optional(),
       pickupLng: z.number().optional(),
       pickupLabel: z.string().max(200).optional(),
+      dropLat: z.number().optional(),
+      dropLng: z.number().optional(),
+      dropLabel: z.string().max(200).optional(),
+      groupSize: z.number().int().min(1).max(30).optional(),
+      luggageCount: z.number().int().min(0).max(60).optional(),
+      pickupAt: z.coerce.date().optional(),
     })
     .safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  // Event over -> no new guest requests (admin/driver wrap-up unaffected).
-  const event = await prisma.eventState.findUnique({ where: { id: "event" } });
-  if (event?.status === "CLOSED") {
-    return res.status(409).json({ error: "This event has ended — ride requests are closed" });
+  const active = await getActiveEvent();
+  if (!active) {
+    return res.status(409).json({ error: "There is no active event right now" });
+  }
+  const guest = await prisma.guest.findUnique({ where: { id: req.auth!.guestId! } });
+  if (!guest || guest.eventId !== active.id) {
+    return res.status(409).json({ error: "You are not part of the current event" });
+  }
+  const phase = eventPhase(active);
+  if (phase === "before") {
+    return res.status(409).json({
+      error: `The event hasn't started yet — rides open on ${active.startsAt?.toLocaleString() ?? "the start date"}`,
+    });
+  }
+  if (phase !== "live") {
+    return res.status(409).json({ error: "The event has ended — ride requests are closed" });
+  }
+  const windowErr = pickupOutsideWindow(active, parsed.data.pickupAt);
+  if (windowErr) return res.status(400).json({ error: windowErr });
+
+  const activeRide = await prisma.tripGuest.findFirst({
+    where: {
+      guestId: req.auth!.guestId!,
+      trip: {
+        status: { in: [TripStatus.ASSIGNED, TripStatus.ACCEPTED, TripStatus.ARRIVED_PICKUP, TripStatus.BOARDED] },
+      },
+    },
+  });
+  if (activeRide) {
+    return res.status(409).json({ error: "You already have a ride in progress — please complete it first" });
+  }
+
+  if (guest.status === GuestStatus.WAITING && guest.waitingSince != null && guest.pickupLat != null) {
+    return res.status(409).json({ error: "You already have an upcoming ride — we're finding you a driver" });
   }
 
   const open = await prisma.rideRequest.findFirst({
@@ -206,20 +304,55 @@ guestsRouter.post("/me/requests", requireRole("GUEST"), async (req, res) => {
   });
   if (open) return res.status(409).json({ error: "You already have a pending request" });
 
-  const { note, pickupLat, pickupLng, pickupLabel } = parsed.data;
+  const { note, pickupLat, pickupLng, pickupLabel, dropLat, dropLng, dropLabel, groupSize, luggageCount, pickupAt } =
+    parsed.data;
   const request = await withRls(req.auth!.sub, "GUEST", async (tx) => {
-    // Live location (if sent) becomes the guest's pickup point.
+    const patch: Record<string, unknown> = {};
     if (pickupLat != null && pickupLng != null) {
-      await tx.guest.update({
-        where: { id: req.auth!.guestId! },
-        data: { pickupLat, pickupLng, pickupLabel: pickupLabel ?? "Current location" },
-      });
+      patch.pickupLat = pickupLat;
+      patch.pickupLng = pickupLng;
+      patch.pickupLabel = pickupLabel ?? "Current location";
     }
-    return tx.rideRequest.create({
-      data: { guestId: req.auth!.guestId!, note },
-    });
+    if (dropLat != null && dropLng != null) {
+      patch.dropLat = dropLat;
+      patch.dropLng = dropLng;
+      patch.dropLabel = dropLabel ?? "Drop-off";
+    }
+    if (groupSize != null) patch.groupSize = groupSize;
+    if (luggageCount != null) patch.luggageCount = luggageCount;
+    if (pickupAt != null) patch.pickupAt = pickupAt;
+    if (Object.keys(patch).length) {
+      await tx.guest.update({ where: { id: req.auth!.guestId! }, data: patch });
+    }
+    return tx.rideRequest.create({ data: { guestId: req.auth!.guestId!, note } });
   });
-  return res.status(201).json(request); // guest sees "request pending"
+  return res.status(201).json(request);
+});
+
+guestsRouter.get("/me/history", requireRole("GUEST"), async (req, res) => {
+  const rows = await prisma.tripGuest.findMany({
+    where: {
+      guestId: req.auth!.guestId!,
+      trip: { status: { in: [TripStatus.COMPLETED, TripStatus.CANCELLED] } },
+    },
+    include: {
+      trip: {
+        include: { driver: { select: { vehicleNumber: true, user: { select: { name: true } } } } },
+      },
+    },
+    orderBy: { trip: { assignedAt: "desc" } },
+  });
+  return res.json(
+    rows.map((r) => ({
+      tripId: r.trip.id,
+      status: r.trip.status,
+      originLabel: r.trip.originLabel,
+      destLabel: r.trip.destLabel,
+      completedAt: r.trip.completedAt,
+      driverName: r.trip.driver.user.name,
+      vehicleNumber: r.trip.driver.vehicleNumber,
+    })),
+  );
 });
 
 guestsRouter.get("/me/requests", requireRole("GUEST"), async (req, res) => {

@@ -1,15 +1,10 @@
 "use client";
 
-/**
- * The driver's single screen. One trip at a time, one big button.
- * - Shows ONLY the driver's own trip (RBAC + RLS enforce this server-side).
- * - Live location auto-shared while online (geolocation watch).
- * - Big touch targets; glanceable next to a car.
- */
 import { useEffect, useRef, useState } from "react";
 import { api, fmtEta, usePoll } from "@/lib/client";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ConnLost } from "@/components/ConnLost";
+import { DriverTripMap } from "@/components/DriverTripMap";
 
 interface Me {
   id: string;
@@ -26,6 +21,7 @@ interface Trip {
   destLabel: string | null;
   etaSeconds: number | null;
   deadline: string | null;
+  otpReady?: boolean;
   tripGuests: {
     guest: {
       groupSize: number;
@@ -48,9 +44,10 @@ export default function DriverPage() {
   const { data: trip, refresh: refreshTrip } = usePoll<Trip | null>("/drivers/me/trip", 4000);
   const [busy, setBusy] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [otp, setOtp] = useState("");
+  const [otpError, setOtpError] = useState("");
   const watchRef = useRef<number | null>(null);
 
-  // Continuous live location while online.
   useEffect(() => {
     const online = me && me.status !== "OFFLINE";
     if (online && watchRef.current === null && "geolocation" in navigator) {
@@ -86,15 +83,26 @@ export default function DriverPage() {
     setBusy(false);
   }
 
-  async function transition(to: string) {
+  async function transition(to: string, extra?: Record<string, unknown>) {
     if (!trip) return;
     setBusy(true);
-    await api(`/drivers/me/trip/${trip.id}/status`, {
+    setOtpError("");
+    const res = await api<{ error?: unknown }>(`/drivers/me/trip/${trip.id}/status`, {
       method: "POST",
-      body: JSON.stringify({ status: to }),
+      body: JSON.stringify({ status: to, ...extra }),
     });
-    await Promise.all([refreshTrip(), refreshMe()]);
     setBusy(false);
+    if (!res.ok) {
+      if (to === "BOARDED") {
+        setOtpError(
+          typeof res.data?.error === "string" ? String(res.data.error) : "Couldn't verify code",
+        );
+      }
+      return;
+    }
+    setOtp("");
+    setOtpError("");
+    await Promise.all([refreshTrip(), refreshMe()]);
   }
 
   if (!me) {
@@ -108,7 +116,7 @@ export default function DriverPage() {
 
   return (
     <div className="space-y-4">
-      {/* status strip */}
+
       <div className="card flex items-center justify-between">
         <div>
           <div className="text-sm text-soft">{me.vehicleNumber}</div>
@@ -132,7 +140,6 @@ export default function DriverPage() {
         </div>
       </div>
 
-      {/* break state */}
       {me.status === "ON_BREAK" && (
         <div className="card border-amber-300 bg-amber-50 text-center dark:border-amber-700 dark:bg-amber-900/20">
           <div className="text-3xl">☕</div>
@@ -147,7 +154,6 @@ export default function DriverPage() {
         </div>
       )}
 
-      {/* trip card / idle state */}
       {trip ? (
         <div className="card space-y-4">
           <div className="flex items-center justify-between">
@@ -197,10 +203,44 @@ export default function DriverPage() {
             </div>
           </div>
 
-          {action && (
-            <button onClick={() => transition(action.to)} disabled={busy} className="btn-primary">
-              {busy ? "…" : action.label}
-            </button>
+          {trip.status !== "ASSIGNED" && (
+            <DriverTripMap tripId={trip.id} status={trip.status} />
+          )}
+
+          {trip.status === "ARRIVED_PICKUP" ? (
+            <div className="space-y-2">
+              {trip.otpReady ? (
+                <>
+                  <label className="label">Enter the guest&apos;s boarding code</label>
+                  <input
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                    placeholder="4-digit code"
+                    className="input text-center text-2xl tracking-[0.5em]"
+                  />
+                  {otpError && <p className="text-sm text-rose-600">{otpError}</p>}
+                  <button
+                    onClick={() => transition("BOARDED", { otp })}
+                    disabled={busy || otp.length !== 4}
+                    className="btn-primary"
+                  >
+                    {busy ? "…" : "Verify & start trip"}
+                  </button>
+                </>
+              ) : (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-center text-sm font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+                  Ask the guest to tap <b>Generate boarding code</b> in their app, then enter it here.
+                </div>
+              )}
+            </div>
+          ) : (
+            action && (
+              <button onClick={() => transition(action.to)} disabled={busy} className="btn-primary">
+                {busy ? "…" : action.label}
+              </button>
+            )
           )}
           {trip.status === "ASSIGNED" && (
             <button onClick={() => transition("REJECTED")} disabled={busy} className="w-full py-2 text-center text-sm font-medium text-rose-600 dark:text-rose-400">
@@ -228,6 +268,43 @@ export default function DriverPage() {
           <p className="mt-1 text-sm text-soft">Go online to start receiving trips.</p>
         </div>
       )}
+
+      <DriverHistory />
+    </div>
+  );
+}
+
+interface HistoryTrip {
+  id: string;
+  status: string;
+  originLabel: string | null;
+  destLabel: string | null;
+  completedAt: string | null;
+  tripGuests: { guest: { user: { name: string } } }[];
+}
+
+function DriverHistory() {
+  const { data } = usePoll<HistoryTrip[]>("/drivers/me/history", 10000);
+  if (!data || data.length === 0) return null;
+  return (
+    <div className="card">
+      <h2 className="mb-2 font-semibold">Your past rides (this event)</h2>
+      <ul className="divide-y divide-edge">
+        {data.map((t) => (
+          <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">
+                {t.originLabel ?? "Pickup"} → {t.destLabel ?? "Drop"}
+              </div>
+              <div className="truncate text-xs text-soft">
+                {t.tripGuests.map((tg) => tg.guest.user.name).join(", ")}
+                {t.completedAt && ` · ${new Date(t.completedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+              </div>
+            </div>
+            <StatusBadge status={t.status} />
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

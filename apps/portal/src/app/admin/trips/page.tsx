@@ -1,9 +1,5 @@
 "use client";
 
-/**
- * Trips: upcoming pre-assigned, unmatched guests (need attention), and
- * manual overrides — cancel (breakdown) and force-assign (edge cases).
- */
 import { useState } from "react";
 import { usePoll, api, fmtEta } from "@/lib/client";
 import type { Overview, Upcoming } from "@/lib/types";
@@ -32,7 +28,6 @@ export default function TripsPage() {
     <div className="space-y-6">
       <h1 className="text-xl font-bold">Trips</h1>
 
-      {/* Unmatched guests — the ones needing human attention */}
       <section>
         <h2 className="mb-2 font-semibold">
           Unmatched guests{" "}
@@ -79,7 +74,6 @@ export default function TripsPage() {
         )}
       </section>
 
-      {/* Upcoming pre-assigned trips */}
       <section>
         <h2 className="mb-2 font-semibold">Upcoming (assigned, not yet accepted)</h2>
         {!up || up.upcoming.length === 0 ? (
@@ -114,7 +108,6 @@ export default function TripsPage() {
         )}
       </section>
 
-      {/* Active trips with cancel (breakdown case) */}
       <section>
         <h2 className="mb-2 font-semibold">In progress</h2>
         {!ov || ov.activeTrips.filter((t) => t.status !== "ASSIGNED").length === 0 ? (

@@ -12,17 +12,11 @@ export function haversineMeters(a: LatLng, b: LatLng): number {
   return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(h));
 }
 
-/**
- * Mock routing model: road distance ≈ 1.35 × straight line; average urban
- * speed 24 km/h, degraded by a deterministic pseudo-random "traffic factor"
- * that changes every 5 minutes — so continuous re-optimization actually has
- * changing ETAs to react to in simulation.
- */
 export function mockEta(a: LatLng, b: LatLng, at: Date = new Date()) {
   const meters = haversineMeters(a, b) * 1.35;
   const baseSpeedMps = 24_000 / 3600;
   const bucket = Math.floor(at.getTime() / (5 * 60 * 1000));
-  // deterministic per (bucket, rough corridor): 0.75..1.45
+
   const seed = Math.abs(
     Math.sin(bucket * 12.9898 + (a.lat + b.lat) * 78.233 + (a.lng + b.lng) * 37.719),
   );

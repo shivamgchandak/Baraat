@@ -1,4 +1,3 @@
-/** @type {import('tailwindcss').Config} */
 module.exports = {
   presets: [require("@baraat/config/tailwind-preset")],
   darkMode: "class",
@@ -6,7 +5,6 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Semantic surfaces that flip with the theme via CSS variables
         surface: "rgb(var(--surface) / <alpha-value>)",
         card: "rgb(var(--card) / <alpha-value>)",
         edge: "rgb(var(--edge) / <alpha-value>)",

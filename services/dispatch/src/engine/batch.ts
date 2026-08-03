@@ -1,19 +1,4 @@
-/**
- * Pre-day batch assignment — the "assignment problem" solved optimally.
- *
- * 1. Cluster same-accommodation guests (shared rides).
- * 2. Build cost matrix: cost(driver, cluster) =
- *      ETA from driver's predicted-free position to pickup
- *    + slack penalty (arriving with little margin before the deadline)
- *    + INFEASIBLE if capacity or deadline cannot be met.
- * 3. Hungarian algorithm (munkres-js) for the optimal one-to-one round.
- * 4. More clusters than drivers -> multiple rounds; unassigned clusters
- *    roll into the next round ordered by deadline (tightest first).
- *
- * Trade-off (documented in README): full capacity+multi-stop optimization
- * is a VRP — OR-Tools territory. Hungarian per round + clustering pre-pass
- * gets near-optimal results at this scale (10–100 drivers) in milliseconds.
- */
+
 import munkres from "munkres-js";
 import { DriverStatus, TripType } from "@baraat/db";
 import { etaMatrix } from "@baraat/maps";
@@ -23,7 +8,7 @@ import type { DriverSnapshot, GuestSnapshot } from "./state.js";
 import { persistAssignment } from "./assign.js";
 
 const INFEASIBLE = 1e9;
-const SLACK_PENALTY_PER_MIN = 30; // seconds of cost per minute of missing slack
+const SLACK_PENALTY_PER_MIN = 30;
 
 export async function runBatch(
   drivers: DriverSnapshot[],
@@ -52,7 +37,6 @@ export async function runBatch(
     const round = clusters.slice(0, freeDrivers.length);
     clusters = clusters.slice(freeDrivers.length);
 
-    // Bulk ETA matrix: drivers' free positions -> cluster pickups (batched).
     const origins = freeDrivers.map((d) => ({
       lat: d.predictedFreeLat ?? d.lat ?? 0,
       lng: d.predictedFreeLng ?? d.lng ?? 0,

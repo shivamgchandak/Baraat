@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "Baraat",
+    "slug": "baraat-guest",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "baraat",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "events.baraat.guest",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Used to set your pickup point when you request a ride."
+      }
+    },
+    "android": {
+      "package": "events.baraat.guest",
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
+    },
+    "plugins": ["expo-secure-store", "expo-location", "expo-notifications"]
+  }
+}

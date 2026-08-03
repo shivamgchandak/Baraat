@@ -1,4 +1,4 @@
-/** Shapes returned by the backend admin endpoints (as consumed by the UI). */
+
 
 export interface OvDriver {
   id: string;
@@ -19,6 +19,7 @@ export interface OvGuest {
   pickupLat: number | null;
   pickupLng: number | null;
   pickupLabel: string | null;
+  dropLabel: string | null;
   flightTrainEta: string | null;
   groupSize: number;
   luggageCount: number;
@@ -51,6 +52,7 @@ export interface OvTrip {
 }
 
 export interface Overview {
+  event: { id: string; name: string; status: string } | null;
   drivers: OvDriver[];
   guests: {
     waiting: OvGuest[];

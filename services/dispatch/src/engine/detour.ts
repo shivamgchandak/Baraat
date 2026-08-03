@@ -1,16 +1,4 @@
-/**
- * Opportunistic detour insertion — including trips ALREADY IN PROGRESS.
- *
- * For a driver who is EN_ROUTE_PICKUP or OCCUPIED (guest on board):
- *   - use the driver's LIVE position, not the trip origin;
- *   - candidate guest must fit remaining seats + luggage;
- *   - candidate's destination must match the trip's destination area
- *     (same accommodation / within 2km of trip destination);
- *   - splice pickup into the remaining route; accept only if
- *       added time <= MAX_DETOUR_ADDED_SECONDS
- *     AND the trip's existing deadline still holds
- *     AND the new guest's own deadline holds.
- */
+
 import { prisma, DriverStatus, GuestStatus, TripStatus } from "@baraat/db";
 import { ENGINE } from "@baraat/types";
 import { eta, haversineMeters } from "@baraat/maps";
@@ -47,13 +35,12 @@ export async function tryDetourInsertion(
 
       const trip = await prisma.trip.findUnique({ where: { id: d.activeTripId! } });
       if (!trip) continue;
-      // Only detour BEFORE boarding-complete states make sense for pickup splice:
+
       const splicable: TripStatus[] = [TripStatus.ACCEPTED, TripStatus.ARRIVED_PICKUP, TripStatus.BOARDED];
       if (!splicable.includes(trip.status)) continue;
 
-      // Destination compatibility: guest heads to (near) the same place.
-      const guestDest = guest.accommodation
-        ? { lat: guest.accommodation.lat, lng: guest.accommodation.lng }
+      const guestDest = guest.drop
+        ? { lat: guest.drop.lat, lng: guest.drop.lng }
         : null;
       if (!guestDest) continue;
       if (
@@ -61,7 +48,6 @@ export async function tryDetourInsertion(
       )
         continue;
 
-      // Route math from LIVE position:
       const live = { lat: d.lat!, lng: d.lng! };
       const tripPickup = { lat: trip.originLat, lng: trip.originLng };
       const tripDest = { lat: trip.destLat, lng: trip.destLng };
@@ -71,14 +57,14 @@ export async function tryDetourInsertion(
       let withDetour: number;
       let newGuestPickupEta: number;
       if (trip.status === TripStatus.BOARDED) {
-        // heading to destination; splice guest pickup before destination
+
         originalRemaining = (await eta(live, tripDest)).seconds;
         const leg1 = (await eta(live, guestPickup)).seconds;
         const leg2 = (await eta(guestPickup, tripDest)).seconds;
         withDetour = leg1 + leg2;
         newGuestPickupEta = leg1;
       } else {
-        // still heading to original pickup; consider guest-first or original-first
+
         const a1 = (await eta(live, tripPickup)).seconds;
         const a2 = (await eta(tripPickup, guestPickup)).seconds;
         const a3 = (await eta(guestPickup, tripDest)).seconds;
@@ -86,8 +72,8 @@ export async function tryDetourInsertion(
         const b2 = (await eta(guestPickup, tripPickup)).seconds;
         const b3 = (await eta(tripPickup, tripDest)).seconds;
         originalRemaining = a1 + (await eta(tripPickup, tripDest)).seconds;
-        const optionA = a1 + a2 + a3; // original pickup first
-        const optionB = b1 + b2 + b3; // new guest first
+        const optionA = a1 + a2 + a3;
+        const optionB = b1 + b2 + b3;
         if (optionA <= optionB) {
           withDetour = optionA;
           newGuestPickupEta = a1 + a2;
@@ -101,9 +87,9 @@ export async function tryDetourInsertion(
       if (added > ENGINE.MAX_DETOUR_ADDED_SECONDS) continue;
 
       const now = Date.now();
-      // Existing trip deadline must still hold:
+
       if (trip.deadline && now + withDetour * 1000 > trip.deadline.getTime()) continue;
-      // New guest's own deadline must hold:
+
       if (guest.deadline && now + newGuestPickupEta * 1000 > guest.deadline.getTime()) continue;
 
       if (!best || added < best.addedSeconds) {

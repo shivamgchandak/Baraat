@@ -3,7 +3,7 @@ import type { JwtPayload, RoleName } from "@baraat/types";
 import { verifyAccessToken } from "../lib/jwt.js";
 
 declare global {
-  // eslint-disable-next-line @typescript-eslint/no-namespace
+
   namespace Express {
     interface Request {
       auth?: JwtPayload;
@@ -25,7 +25,6 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   }
 }
 
-/** RBAC guard. Usage: requireRole('ADMIN'), requireRole('DRIVER', 'ADMIN') */
 export function requireRole(...roles: RoleName[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.auth) {

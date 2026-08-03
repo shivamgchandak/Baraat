@@ -1,25 +1,13 @@
-/**
- * Peak-arrival simulation — the assignment's scoring scenario.
- *
- * Timeline (accelerated — 1 sim step = 1s real, trip phases compressed 60x):
- *   t0   : pre-day BATCH round assigns the 20 seeded, known-arrival guests
- *   t+5s : PEAK BURST — 25 walk-in guests raise on-demand requests at the
- *          airport within seconds (auto-approved here to exercise the
- *          engine; in production an admin clicks approve)
- *   then : engine ticks (greedy + detour + reoptimize) while a driver-bot
- *          plays every driver: accept -> arrive -> board -> drop
- *
- * Ends with a report: waits, shared rides, capacity/deadline violations.
- */
+
 import { prisma, DriverStatus, GuestStatus, Role, TripStatus, TripType } from "@baraat/db";
 import bcrypt from "bcryptjs";
 import { tick } from "../index.js";
 import { runBatch } from "../engine/batch.js";
 import { loadDrivers, loadWaitingGuests } from "../engine/state.js";
 
-const AIRPORT = { name: "IGI Airport T3", lat: 28.5562, lng: 77.1 };
-// Tunable via env so CI can run the whole scenario in <30s.
-const SPEEDUP = Number(process.env.SIM_SPEEDUP ?? 60); // 60 => 1 real s = 1 sim min
+const AIRPORT = { name: "Kolhapur Airport (Ujalaiwadi)", lat: 16.6647, lng: 74.2894 };
+
+const SPEEDUP = Number(process.env.SIM_SPEEDUP ?? 60);
 const BURST_SIZE = Number(process.env.SIM_BURST ?? 25);
 const SIM_STEPS = Number(process.env.SIM_STEPS ?? 120);
 const STEP_MS = Number(process.env.SIM_STEP_MS ?? 1000);
@@ -29,7 +17,7 @@ async function burstGuests(): Promise<void> {
   const hash = await bcrypt.hash("password123", 4);
   const now = Date.now();
   for (let i = 0; i < BURST_SIZE; i++) {
-    const groupSize = [1, 2, 1, 3, 1, 2, 1, 4, 1, 14][i % 10]!; // one 14-pax group -> fleet escalation
+    const groupSize = [1, 2, 1, 3, 1, 2, 1, 4, 1, 14][i % 10]!;
     await prisma.user.create({
       data: {
         name: `WalkIn ${i + 1}`,
@@ -44,7 +32,7 @@ async function burstGuests(): Promise<void> {
             accommodationId: hotels[i % hotels.length]!.id,
             groupSize,
             luggageCount: Math.min(groupSize, 3),
-            status: GuestStatus.WAITING, // = admin already approved the request
+            status: GuestStatus.WAITING,
             waitingSince: new Date(now),
             deadline: new Date(now + 45 * 60_000),
             priority: i === 7,
@@ -56,7 +44,6 @@ async function burstGuests(): Promise<void> {
   console.log(`\n=== PEAK BURST: ${BURST_SIZE} on-demand guests at the airport ===\n`);
 }
 
-/** Driver-bot: advances every active trip through its lifecycle. */
 async function driverBotStep(): Promise<void> {
   const trips = await prisma.trip.findMany({
     where: {
@@ -68,11 +55,11 @@ async function driverBotStep(): Promise<void> {
 
   for (const trip of trips) {
     const guestIds = trip.tripGuests.map((tg) => tg.guestId);
-    const phaseSeconds = (trip.etaSeconds ?? 300) / SPEEDUP; // compressed
+    const phaseSeconds = (trip.etaSeconds ?? 300) / SPEEDUP;
 
     switch (trip.status) {
       case TripStatus.ASSIGNED: {
-        // drivers accept ~95% of offers; simulate an occasional reject
+
         if (Math.random() < 0.05) {
           await prisma.$transaction([
             prisma.trip.update({ where: { id: trip.id }, data: { status: TripStatus.REJECTED } }),
@@ -96,7 +83,7 @@ async function driverBotStep(): Promise<void> {
       }
       case TripStatus.ACCEPTED: {
         const elapsed = (now.getTime() - (trip.acceptedAt?.getTime() ?? 0)) / 1000;
-        // move driver linearly toward pickup
+
         const frac = Math.min(1, elapsed / Math.max(1, phaseSeconds));
         await prisma.driver.update({
           where: { id: trip.driverId },
@@ -124,7 +111,7 @@ async function driverBotStep(): Promise<void> {
       }
       case TripStatus.BOARDED: {
         const elapsed = (now.getTime() - (trip.boardedAt?.getTime() ?? 0)) / 1000;
-        const dropSeconds = 480 / SPEEDUP; // compressed leg to destination
+        const dropSeconds = 480 / SPEEDUP;
         const frac = Math.min(1, elapsed / dropSeconds);
         await prisma.driver.update({
           where: { id: trip.driverId },
@@ -153,7 +140,7 @@ async function driverBotStep(): Promise<void> {
                 currentLng: trip.destLng,
                 predictedFreeAt: needsBreak
                   ? new Date(now.getTime() + (900_000 / SPEEDUP))
-                  : now, // compressed break
+                  : now,
                 predictedFreeLat: trip.destLat,
                 predictedFreeLng: trip.destLng,
               },
@@ -165,7 +152,7 @@ async function driverBotStep(): Promise<void> {
       }
     }
   }
-  // compressed break end: ON_BREAK drivers whose predictedFreeAt passed
+
   await prisma.driver.updateMany({
     where: { status: DriverStatus.ON_BREAK, predictedFreeAt: { lte: now } },
     data: { status: DriverStatus.IDLE },
@@ -202,8 +189,7 @@ async function report(): Promise<void> {
     if (t.status === TripStatus.REJECTED || t.status === TripStatus.CANCELLED) continue;
     const seats = t.tripGuests.reduce((a, tg) => a + tg.guest.groupSize, 0);
     const luggage = t.tripGuests.reduce((a, tg) => a + tg.guest.luggageCount, 0);
-    // split trips (fleet escalation) carry partial groups; count real load via cluster totals is
-    // conservative here: flag only single-guest-overflow
+
     if (t.tripGuests.length > 1 && (seats > t.driver.seatCapacity || luggage > t.driver.luggageCapacity)) {
       capacityViolations++;
     }
@@ -240,8 +226,8 @@ async function main() {
   await burstGuests();
 
   for (let step = 0; step < SIM_STEPS; step++) {
-    await tick(); // the real engine
-    await driverBotStep(); // drivers "driving"
+    await tick();
+    await driverBotStep();
     const waitingNow = await prisma.guest.count({ where: { status: GuestStatus.WAITING } });
     const active = await prisma.trip.count({
       where: { status: { in: [TripStatus.ACCEPTED, TripStatus.ARRIVED_PICKUP, TripStatus.BOARDED] } },

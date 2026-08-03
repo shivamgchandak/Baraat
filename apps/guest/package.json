@@ -1,0 +1,30 @@
+{
+  "name": "@baraat/guest",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "expo": "~54.0.36",
+    "expo-constants": "~18.0.13",
+    "expo-device": "~8.0.10",
+    "expo-linking": "~8.0.12",
+    "expo-location": "~19.0.8",
+    "expo-notifications": "~0.32.17",
+    "expo-secure-store": "~15.0.8",
+    "expo-status-bar": "~3.0.9",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-maps": "1.20.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@types/react": "~19.1.17",
+    "typescript": "~5.9.3"
+  }
+}

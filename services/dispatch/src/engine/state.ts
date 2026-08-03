@@ -1,4 +1,4 @@
-/** Engine snapshots of driver + guest state (the engine's world view). */
+
 import { prisma, DriverStatus, GuestStatus, TripStatus } from "@baraat/db";
 
 export interface DriverSnapshot {
@@ -12,7 +12,7 @@ export interface DriverSnapshot {
   predictedFreeAt: Date | null;
   predictedFreeLat: number | null;
   predictedFreeLng: number | null;
-  /** seats/luggage already committed to active trips */
+
   seatsInUse: number;
   luggageInUse: number;
   activeTripId: string | null;
@@ -32,6 +32,8 @@ export interface GuestSnapshot {
   priority: boolean;
   accommodationId: string | null;
   accommodation: { name: string; lat: number; lng: number } | null;
+
+  drop: { label: string; lat: number; lng: number } | null;
   flightTrainEta: Date | null;
 }
 
@@ -76,9 +78,16 @@ export async function loadDrivers(): Promise<DriverSnapshot[]> {
 }
 
 export async function loadWaitingGuests(): Promise<GuestSnapshot[]> {
+  const { getLiveEventId } = await import("@baraat/db");
+
+  const eventId = await getLiveEventId();
+  if (!eventId) return [];
   const guests = await prisma.guest.findMany({
     where: {
+      eventId,
       status: GuestStatus.WAITING,
+
+      waitingSince: { not: null },
       pickupLat: { not: null },
       pickupLng: { not: null },
     },
@@ -102,6 +111,12 @@ export async function loadWaitingGuests(): Promise<GuestSnapshot[]> {
     accommodation: g.accommodation
       ? { name: g.accommodation.name, lat: g.accommodation.lat, lng: g.accommodation.lng }
       : null,
+    drop:
+      g.dropLat != null && g.dropLng != null
+        ? { label: g.dropLabel ?? "Drop-off", lat: g.dropLat, lng: g.dropLng }
+        : g.accommodation
+          ? { label: g.accommodation.name, lat: g.accommodation.lat, lng: g.accommodation.lng }
+          : null,
     flightTrainEta: g.flightTrainEta,
   }));
 }

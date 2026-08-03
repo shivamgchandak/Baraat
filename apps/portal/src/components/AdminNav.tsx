@@ -10,6 +10,7 @@ const LINKS = [
   { href: "/admin/trips", label: "Trips", icon: "🧭" },
   { href: "/admin/guests", label: "Guests", icon: "🧑‍🤝‍🧑" },
   { href: "/admin/drivers", label: "Drivers", icon: "🚖" },
+  { href: "/admin/events", label: "Events", icon: "📅" },
 ];
 
 export function AdminNav({ orientation }: { orientation: "vertical" | "horizontal" }) {

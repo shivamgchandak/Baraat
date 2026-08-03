@@ -13,15 +13,27 @@ export default function LoginPage() {
     e.preventDefault();
     setBusy(true);
     setError("");
-    const res = await fetch("/api/session", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-    const json = await res.json();
+    let res: Response;
+    try {
+      res = await fetch("/api/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+    } catch {
+      setBusy(false);
+      setError("Can't reach the server. Please try again in a moment.");
+      return;
+    }
+    let json: { role?: string; error?: unknown } = {};
+    try {
+      json = await res.json();
+    } catch {
+      json = {};
+    }
     setBusy(false);
     if (!res.ok) {
-      setError(typeof json.error === "string" ? json.error : "Login failed");
+      setError(typeof json.error === "string" ? json.error : "Login failed — is the backend running?");
       return;
     }
     window.location.href = json.role === "ADMIN" ? "/admin" : "/driver";

@@ -15,7 +15,8 @@
     "@baraat/maps": "workspace:*",
     "@baraat/types": "workspace:*",
     "bcryptjs": "^2.4.3",
-    "munkres-js": "^1.2.2"
+    "munkres-js": "^1.2.2",
+    "@baraat/push": "workspace:*"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

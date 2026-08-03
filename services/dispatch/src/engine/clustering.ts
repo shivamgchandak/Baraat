@@ -1,9 +1,4 @@
-/**
- * Shared-ride clustering: guests heading to the SAME accommodation whose
- * pickups are close together and whose pickup windows overlap get grouped
- * into one vehicle — if combined seats + luggage fit the fleet's best
- * vehicle. Reduces vehicle-hours during arrival surges.
- */
+
 import { ENGINE } from "@baraat/types";
 import { haversineMeters } from "@baraat/maps";
 import type { GuestSnapshot } from "./state.js";
@@ -12,9 +7,9 @@ export interface Cluster {
   guests: GuestSnapshot[];
   totalSeats: number;
   totalLuggage: number;
-  /** earliest member deadline — the cluster inherits the tightest constraint */
+
   deadline: Date | null;
-  lat: number; // representative pickup (first guest)
+  lat: number;
   lng: number;
   destLat: number;
   destLng: number;
@@ -34,13 +29,15 @@ export function clusterGuests(
   const windowMs = ENGINE.CLUSTER_WINDOW_MINUTES * 60_000;
 
   for (const g of guests) {
-    if (!g.accommodation) {
+    if (!g.drop) {
       clusters.push(singleton(g));
       continue;
     }
     const fit = clusters.find(
       (c) =>
-        c.accommodationId === g.accommodationId &&
+
+        haversineMeters({ lat: c.destLat, lng: c.destLng }, { lat: g.drop!.lat, lng: g.drop!.lng }) <=
+          300 &&
         c.totalSeats + g.groupSize <= maxSeats &&
         c.totalLuggage + g.luggageCount <= maxLuggage &&
         haversineMeters({ lat: c.lat, lng: c.lng }, { lat: g.lat, lng: g.lng }) <=
@@ -63,7 +60,7 @@ export function clusterGuests(
 function windowsOverlap(a: GuestSnapshot, b: GuestSnapshot, windowMs: number): boolean {
   const ta = a.flightTrainEta?.getTime() ?? a.waitingSince?.getTime();
   const tb = b.flightTrainEta?.getTime() ?? b.waitingSince?.getTime();
-  if (ta == null || tb == null) return true; // both already here
+  if (ta == null || tb == null) return true;
   return Math.abs(ta - tb) <= windowMs;
 }
 
@@ -75,9 +72,9 @@ function singleton(g: GuestSnapshot): Cluster {
     deadline: g.deadline,
     lat: g.lat,
     lng: g.lng,
-    destLat: g.accommodation?.lat ?? g.lat,
-    destLng: g.accommodation?.lng ?? g.lng,
-    destLabel: g.accommodation?.name ?? "Destination TBC",
+    destLat: g.drop?.lat ?? g.lat,
+    destLng: g.drop?.lng ?? g.lng,
+    destLabel: g.drop?.label ?? "Destination TBC",
     accommodationId: g.accommodationId,
     priority: g.priority,
   };

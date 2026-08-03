@@ -1,6 +1,5 @@
 "use client";
 
-/** Ops dashboard: live fleet map + at-a-glance numbers. */
 import { useState } from "react";
 import { usePoll, api, timeAgo } from "@/lib/client";
 import type { Overview } from "@/lib/types";
@@ -18,44 +17,26 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: str
 }
 
 interface EventState {
+  id: string;
   status: "ACTIVE" | "CLOSED";
   name: string;
   closedAt: string | null;
 }
 
-function EventSwitch() {
-  const { data: event, refresh } = usePoll<EventState>("/admin/event", 10000);
-  const [busy, setBusy] = useState(false);
-
-  async function setStatus(status: "ACTIVE" | "CLOSED") {
-    const msg =
-      status === "CLOSED"
-        ? "End the event? Guests will no longer be able to raise ride requests. In-progress trips continue."
-        : "Reopen the event? Guests will be able to raise ride requests again.";
-    if (!confirm(msg)) return;
-    setBusy(true);
-    await api("/admin/event/status", { method: "POST", body: JSON.stringify({ status }) });
-    await refresh();
-    setBusy(false);
+function EventBanner() {
+  const { data: event } = usePoll<EventState | null>("/admin/event", 10000);
+  if (event === undefined) return null;
+  if (!event) {
+    return (
+      <a href="/admin/events" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+        No active event · Create one →
+      </a>
+    );
   }
-
-  if (!event) return null;
-  return event.status === "ACTIVE" ? (
-    <button
-      onClick={() => setStatus("CLOSED")}
-      disabled={busy}
-      className="rounded-xl border border-edge bg-card px-4 py-2 text-sm font-semibold"
-    >
-      🟢 Event live · End event
-    </button>
-  ) : (
-    <button
-      onClick={() => setStatus("ACTIVE")}
-      disabled={busy}
-      className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
-    >
-      🔴 Event ended · Reopen
-    </button>
+  return (
+    <a href="/admin/events" className="rounded-xl border border-edge bg-card px-4 py-2 text-sm font-semibold">
+      🟢 {event.name} · Manage
+    </a>
   );
 }
 
@@ -77,10 +58,9 @@ export default function AdminDashboard() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold">Live operations</h1>
-        <EventSwitch />
+        <EventBanner />
       </div>
 
-      {/* Stats — 2 cols on phone, 6 on desktop */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         <Stat label="Waiting" value={g.waiting.length} tone="text-amber-600 dark:text-amber-400" />
         <Stat label="Assigned" value={g.assigned.length} tone="text-sky-600 dark:text-sky-400" />
@@ -100,7 +80,6 @@ export default function AdminDashboard() {
         </a>
       )}
 
-      {/* Map + fleet list: stacked on phone, side-by-side on desktop */}
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <div className="card h-[320px] p-1 sm:h-[420px]">
           <LiveMap
@@ -139,7 +118,6 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Active trips */}
       <div className="card">
         <h2 className="mb-2 font-semibold">Active trips ({data.activeTrips.length})</h2>
         {data.activeTrips.length === 0 ? (
