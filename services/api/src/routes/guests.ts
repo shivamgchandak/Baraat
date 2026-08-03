@@ -71,31 +71,31 @@ guestsRouter.post("/", requireRole("ADMIN"), async (req, res) => {
 
   const existing = await prisma.user.findUnique({
     where: { email },
-    include: { guest: true },
+    include: { guest: true, driver: true },
   });
   if (existing) {
-    if (existing.role !== Role.GUEST || !existing.guest) {
-      return res.status(409).json({ error: "That email is already used by another account" });
+    if (existing.driver && existing.driver.eventId === active.id) {
+      return res.status(409).json({ error: "This person is already a driver in this event — the same person can't be both in one event" });
     }
-    if (existing.guest.eventId === active.id) {
+    if (existing.guest && existing.guest.eventId === active.id) {
       return res.status(409).json({ error: "This guest is already in the current event" });
     }
-    await prisma.guest.update({
-      where: { id: existing.guest.id },
-      data: {
-        ...details,
-        eventId: active.id,
-        status: GuestStatus.WAITING,
-        waitingSince: queued ? (details.pickupAt ?? new Date()) : null,
-      },
-    });
+    const guestData = {
+      ...details,
+      eventId: active.id,
+      status: GuestStatus.WAITING,
+      waitingSince: queued ? (details.pickupAt ?? new Date()) : null,
+    };
+    const guest = existing.guest
+      ? await prisma.guest.update({ where: { id: existing.guest.id }, data: guestData })
+      : await prisma.guest.create({ data: { userId: existing.id, ...guestData } });
     await prisma.user.update({
       where: { id: existing.id },
-      data: { name, phone, passwordHash },
+      data: { role: Role.GUEST, name, phone, passwordHash },
     });
     const { sent } = await sendCredentialsEmail({ to: email, name, role: "guest", password: plainPassword });
     return res.status(201).json({
-      id: existing.guest.id,
+      id: guest.id,
       userId: existing.id,
       defaultPassword: password ? null : DEFAULT_GUEST_PASSWORD,
       emailSent: sent,

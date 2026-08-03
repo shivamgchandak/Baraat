@@ -36,36 +36,36 @@ driversRouter.post("/", requireRole("ADMIN"), async (req, res) => {
 
   const existing = await prisma.user.findUnique({
     where: { email: d.email },
-    include: { driver: true },
+    include: { driver: true, guest: true },
   });
   if (existing) {
-    if (existing.role !== Role.DRIVER || !existing.driver) {
-      return res.status(409).json({ error: "That email is already used by another account" });
+    if (existing.guest && existing.guest.eventId === active.id) {
+      return res.status(409).json({ error: "This person is already a guest in this event — the same person can't be both in one event" });
     }
-    if (existing.driver.eventId === active.id) {
+    if (existing.driver && existing.driver.eventId === active.id) {
       return res.status(409).json({ error: "This driver is already in the current event" });
     }
-    const driver = await prisma.driver.update({
-      where: { id: existing.driver.id },
-      data: {
-        eventId: active.id,
-        vehicleNumber: d.vehicleNumber,
-        seatCapacity: d.seatCapacity,
-        luggageCapacity: d.luggageCapacity,
-        status: DriverStatus.OFFLINE,
-        currentLat: null,
-        currentLng: null,
-        lastLocationAt: null,
-        predictedFreeAt: null,
-        predictedFreeLat: null,
-        predictedFreeLng: null,
-        tripsSinceBreak: 0,
-        lastBreakAt: null,
-      },
-    });
+    const driverData = {
+      eventId: active.id,
+      vehicleNumber: d.vehicleNumber,
+      seatCapacity: d.seatCapacity,
+      luggageCapacity: d.luggageCapacity,
+      status: DriverStatus.OFFLINE,
+      currentLat: null,
+      currentLng: null,
+      lastLocationAt: null,
+      predictedFreeAt: null,
+      predictedFreeLat: null,
+      predictedFreeLng: null,
+      tripsSinceBreak: 0,
+      lastBreakAt: null,
+    };
+    const driver = existing.driver
+      ? await prisma.driver.update({ where: { id: existing.driver.id }, data: driverData })
+      : await prisma.driver.create({ data: { userId: existing.id, ...driverData } });
     await prisma.user.update({
       where: { id: existing.id },
-      data: { name: d.name, phone: d.phone, passwordHash },
+      data: { role: Role.DRIVER, name: d.name, phone: d.phone, passwordHash },
     });
     const { sent } = await sendCredentialsEmail({ to: d.email, name: d.name, role: "driver", password: plainPassword });
     return res.status(201).json({
