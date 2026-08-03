@@ -16,8 +16,21 @@
     },
     "android": {
       "package": "events.baraat.guest",
-      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
-    "plugins": ["expo-secure-store", "expo-location", "expo-notifications"]
+    "plugins": [
+      "expo-secure-store",
+      "expo-location",
+      "expo-notifications"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "25dbe3c9-a26b-4b4c-be75-922e2335fc58"
+      }
+    },
+    "owner": "shivamgchandak"
   }
 }
