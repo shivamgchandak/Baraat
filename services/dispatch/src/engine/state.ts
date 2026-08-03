@@ -38,8 +38,11 @@ export interface GuestSnapshot {
 }
 
 export async function loadDrivers(): Promise<DriverSnapshot[]> {
+  const { getActiveEventId } = await import("@baraat/db");
+  const eventId = await getActiveEventId();
+  if (!eventId) return [];
   const drivers = await prisma.driver.findMany({
-    where: { status: { not: DriverStatus.OFFLINE } },
+    where: { eventId, status: { not: DriverStatus.OFFLINE } },
     include: {
       user: { select: { name: true } },
       trips: {

@@ -64,18 +64,51 @@ guestsRouter.post("/", requireRole("ADMIN"), async (req, res) => {
   }
   const windowErr = pickupOutsideWindow(active, details.pickupAt);
   if (windowErr) return res.status(400).json({ error: windowErr });
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) return res.status(409).json({ error: "Email already registered" });
 
   const plainPassword = password ?? DEFAULT_GUEST_PASSWORD;
-
+  const passwordHash = await bcrypt.hash(plainPassword, 10);
   const queued = details.pickupLat != null && details.pickupLng != null;
+
+  const existing = await prisma.user.findUnique({
+    where: { email },
+    include: { guest: true },
+  });
+  if (existing) {
+    if (existing.role !== Role.GUEST || !existing.guest) {
+      return res.status(409).json({ error: "That email is already used by another account" });
+    }
+    if (existing.guest.eventId === active.id) {
+      return res.status(409).json({ error: "This guest is already in the current event" });
+    }
+    await prisma.guest.update({
+      where: { id: existing.guest.id },
+      data: {
+        ...details,
+        eventId: active.id,
+        status: GuestStatus.WAITING,
+        waitingSince: queued ? (details.pickupAt ?? new Date()) : null,
+      },
+    });
+    await prisma.user.update({
+      where: { id: existing.id },
+      data: { name, phone, passwordHash },
+    });
+    const { sent } = await sendCredentialsEmail({ to: email, name, role: "guest", password: plainPassword });
+    return res.status(201).json({
+      id: existing.guest.id,
+      userId: existing.id,
+      defaultPassword: password ? null : DEFAULT_GUEST_PASSWORD,
+      emailSent: sent,
+      reused: true,
+    });
+  }
+
   const user = await prisma.user.create({
     data: {
       name,
       email,
       phone,
-      passwordHash: await bcrypt.hash(plainPassword, 10),
+      passwordHash,
       role: Role.GUEST,
       activatedAt: new Date(),
       guest: {

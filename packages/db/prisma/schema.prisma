@@ -96,6 +96,7 @@ model Event {
   accommodations Accommodation[]
   eventLocations EventLocation[]
   guests         Guest[]
+  drivers        Driver[]
   trips          Trip[]
 
   @@index([status])
@@ -117,6 +118,8 @@ model Driver {
   id               String       @id @default(cuid())
   userId           String       @unique
   user             User         @relation(fields: [userId], references: [id])
+  eventId          String?
+  event            Event?       @relation(fields: [eventId], references: [id])
   vehicleNumber    String
   seatCapacity     Int
   luggageCapacity  Int
@@ -132,6 +135,7 @@ model Driver {
   trips            Trip[]
 
   @@index([status])
+  @@index([eventId])
 }
 
 model Accommodation {

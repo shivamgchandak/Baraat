@@ -12,6 +12,7 @@ adminRouter.get("/overview", async (_req, res) => {
   const eventId = active?.id ?? "__none__";
   const [drivers, guests, pendingRequests, activeTrips] = await Promise.all([
     prisma.driver.findMany({
+      where: { eventId },
       include: { user: { select: { name: true, phone: true } } },
     }),
     prisma.guest.findMany({

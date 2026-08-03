@@ -31,19 +31,63 @@ driversRouter.post("/", requireRole("ADMIN"), async (req, res) => {
   if (!active) {
     return res.status(409).json({ error: "Create an event first — no active event" });
   }
-  const existing = await prisma.user.findUnique({ where: { email: d.email } });
-  if (existing) return res.status(409).json({ error: "Email already registered" });
   const plainPassword = d.password ?? DEFAULT_DRIVER_PASSWORD;
+  const passwordHash = await bcrypt.hash(plainPassword, 10);
+
+  const existing = await prisma.user.findUnique({
+    where: { email: d.email },
+    include: { driver: true },
+  });
+  if (existing) {
+    if (existing.role !== Role.DRIVER || !existing.driver) {
+      return res.status(409).json({ error: "That email is already used by another account" });
+    }
+    if (existing.driver.eventId === active.id) {
+      return res.status(409).json({ error: "This driver is already in the current event" });
+    }
+    const driver = await prisma.driver.update({
+      where: { id: existing.driver.id },
+      data: {
+        eventId: active.id,
+        vehicleNumber: d.vehicleNumber,
+        seatCapacity: d.seatCapacity,
+        luggageCapacity: d.luggageCapacity,
+        status: DriverStatus.OFFLINE,
+        currentLat: null,
+        currentLng: null,
+        lastLocationAt: null,
+        predictedFreeAt: null,
+        predictedFreeLat: null,
+        predictedFreeLng: null,
+        tripsSinceBreak: 0,
+        lastBreakAt: null,
+      },
+    });
+    await prisma.user.update({
+      where: { id: existing.id },
+      data: { name: d.name, phone: d.phone, passwordHash },
+    });
+    const { sent } = await sendCredentialsEmail({ to: d.email, name: d.name, role: "driver", password: plainPassword });
+    return res.status(201).json({
+      id: driver.id,
+      userId: existing.id,
+      defaultPassword: d.password ? null : DEFAULT_DRIVER_PASSWORD,
+      emailSent: sent,
+      reused: true,
+    });
+  }
+
   const user = await prisma.user.create({
     data: {
       name: d.name,
       email: d.email,
       phone: d.phone,
-      passwordHash: await bcrypt.hash(plainPassword, 10),
+      passwordHash,
       role: Role.DRIVER,
       activatedAt: new Date(),
       driver: {
         create: {
+          eventId: active.id,
           vehicleNumber: d.vehicleNumber,
           seatCapacity: d.seatCapacity,
           luggageCapacity: d.luggageCapacity,
@@ -62,7 +106,10 @@ driversRouter.post("/", requireRole("ADMIN"), async (req, res) => {
 });
 
 driversRouter.get("/", requireRole("ADMIN"), async (_req, res) => {
+  const active = await getActiveEvent();
+  if (!active) return res.json([]);
   const drivers = await prisma.driver.findMany({
+    where: { eventId: active.id },
     include: {
       user: { select: { name: true, email: true, phone: true } },
       trips: {
