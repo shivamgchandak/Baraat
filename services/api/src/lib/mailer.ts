@@ -28,6 +28,9 @@ function portalUrl(): string {
   return picked ?? process.env.PORTAL_URL ?? (isProd ? "https://baraat-ops.vercel.app" : "http://localhost:3000");
 }
 
+const GUEST_APK_URL =
+  "https://expo.dev/artifacts/eas/MfybBkcXDv18xxOqcPoGfkDMdovH8v-3NOQGd_6YrB4.apk";
+
 export async function sendCredentialsEmail(opts: {
   to: string;
   name: string;
@@ -38,10 +41,10 @@ export async function sendCredentialsEmail(opts: {
   const isGuest = role === "guest";
   const url = portalUrl();
   const appLine = isGuest
-    ? "Open the Baraat guest app and sign in."
+    ? `Download the Baraat guest app and sign in:\n${GUEST_APK_URL}\n(Downloadable on Android only, as it is an APK.)`
     : `Open the Baraat Ops portal and sign in under your driver account:\n${url}`;
   const appHtml = isGuest
-    ? "Open the Baraat guest app and sign in."
+    ? `Download the Baraat guest app and sign in:<br/><a href="${GUEST_APK_URL}">${GUEST_APK_URL}</a><br/><span style="font-size:12px;color:#666;">(Downloadable on Android only, as it is an APK.)</span>`
     : `Open the Baraat Ops portal and sign in under your driver account:<br/><a href="${url}">${url}</a>`;
   const subject = isGuest
     ? "Your Baraat ride account is ready"
