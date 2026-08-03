@@ -18,4 +18,4 @@ export const prisma = globalForPrisma.prisma ?? createClient();
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
-export { getActiveEvent, getActiveEventId, getLiveEvent, getLiveEventId, eventPhase, type EventPhase } from "./event.js";
+export { getActiveEvent, getActiveEventId, getLiveEvent, getLiveEventId, eventPhase, serviceWindow, RIDE_WINDOW_BUFFER_MS, type EventPhase } from "./event.js";

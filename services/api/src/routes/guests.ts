@@ -6,7 +6,7 @@ import { prisma, GuestStatus, Role, TripStatus } from "@baraat/db";
 import { withRls } from "@baraat/db/src/rls.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { sendCredentialsEmail } from "../lib/mailer.js";
-import { getActiveEvent, eventPhase } from "@baraat/db";
+import { getActiveEvent, eventPhase, serviceWindow } from "@baraat/db";
 
 const DEFAULT_GUEST_PASSWORD = "guest123";
 
@@ -16,11 +16,12 @@ function pickupOutsideWindow(
 ): string | null {
   if (!pickupAt) return null;
   const fmt = (d: Date) => d.toLocaleString();
-  if (event.startsAt && pickupAt < event.startsAt) {
-    return `Pickup time must be on/after the event start (${fmt(event.startsAt)})`;
+  const { start, end } = serviceWindow(event);
+  if (start && pickupAt < start) {
+    return `Pickup time can be at most 8 hours before the event starts (from ${fmt(start)})`;
   }
-  if (event.endsAt && pickupAt > event.endsAt) {
-    return `Pickup time must be on/before the event end (${fmt(event.endsAt)})`;
+  if (end && pickupAt > end) {
+    return `Pickup time can be at most 8 hours after the event ends (until ${fmt(end)})`;
   }
   return null;
 }
