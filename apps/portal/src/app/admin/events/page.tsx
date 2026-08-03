@@ -173,15 +173,15 @@ function NewEventForm({ onDone }: { onDone: () => void }) {
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <label className="label">Starts at</label>
+          <label className="label">Rides open at</label>
           <input type="datetime-local" className="input" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
         </div>
         <div>
-          <label className="label">Ends at</label>
+          <label className="label">Rides close at</label>
           <input type="datetime-local" className="input" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
         </div>
       </div>
-      <p className="text-xs text-soft">Rides (guest requests, driver accepts) only work between these dates. Leave blank for always-open.</p>
+      <p className="text-xs text-soft">This is the ride window — set it to when you want rides available (can be wider than the actual event). Guest requests, driver accepts, and auto-assignment only work between these times. Leave blank for always-open.</p>
       <p className="text-sm font-medium text-soft">Save important places (used when adding guests & for ride requests)</p>
       <div><label className="label">🎪 Venue</label><LocationPicker value={venue} onChange={setVenue} placeholder="Search the event venue…" /></div>
       <div><label className="label">✈️ Airport</label><LocationPicker value={airport} onChange={setAirport} placeholder="Search the airport…" /></div>

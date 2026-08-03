@@ -14,22 +14,15 @@ export async function getActiveEventId(): Promise<string | null> {
 
 export type EventPhase = "none" | "before" | "live" | "after" | "closed";
 
-/** Rides open this many ms before the event starts and stay open this long after it ends. */
-export const RIDE_WINDOW_BUFFER_MS = 8 * 60 * 60 * 1000;
-
 /**
- * The window during which rides are actually allowed: the event's own window
- * widened by RIDE_WINDOW_BUFFER_MS on each side (so early arrivals and late
- * departures are covered). Null bounds mean open-ended on that side.
+ * The ride availability window — exactly the start/end times the admin set on
+ * the event. Rides are only allowed between these. Null bounds mean open-ended.
  */
 export function serviceWindow(event: { startsAt: Date | null; endsAt: Date | null }): {
   start: Date | null;
   end: Date | null;
 } {
-  return {
-    start: event.startsAt ? new Date(event.startsAt.getTime() - RIDE_WINDOW_BUFFER_MS) : null,
-    end: event.endsAt ? new Date(event.endsAt.getTime() + RIDE_WINDOW_BUFFER_MS) : null,
-  };
+  return { start: event.startsAt ?? null, end: event.endsAt ?? null };
 }
 
 export function eventPhase(

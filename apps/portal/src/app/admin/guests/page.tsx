@@ -217,11 +217,9 @@ function EditPickup({
   );
 }
 
-const RIDE_WINDOW_BUFFER_H = 8;
-
-function toLocalInput(iso: string | null, offsetHours = 0): string | undefined {
+function toLocalInput(iso: string | null): string | undefined {
   if (!iso) return undefined;
-  const d = new Date(new Date(iso).getTime() + offsetHours * 60 * 60 * 1000);
+  const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -296,14 +294,12 @@ function AddGuestForm({ onDone, startsAt, endsAt }: { onDone: () => void; starts
           type="datetime-local"
           className="input"
           value={f.pickupAt}
-          min={toLocalInput(startsAt, -RIDE_WINDOW_BUFFER_H)}
-          max={toLocalInput(endsAt, RIDE_WINDOW_BUFFER_H)}
+          min={toLocalInput(startsAt)}
+          max={toLocalInput(endsAt)}
           onChange={set("pickupAt")}
         />
         {(startsAt || endsAt) && (
-          <p className="mt-1 text-xs text-soft">
-            Rides run from 8 hours before the event starts to 8 hours after it ends.
-          </p>
+          <p className="mt-1 text-xs text-soft">Must be within the event's ride window.</p>
         )}
       </div>
       <div><label className="label">Group size</label><input className="input" inputMode="numeric" value={f.groupSize} onChange={set("groupSize")} /></div>

@@ -18,10 +18,10 @@ function pickupOutsideWindow(
   const fmt = (d: Date) => d.toLocaleString();
   const { start, end } = serviceWindow(event);
   if (start && pickupAt < start) {
-    return `Pickup time can be at most 8 hours before the event starts (from ${fmt(start)})`;
+    return `Pickup time must be within the ride window (opens ${fmt(start)})`;
   }
   if (end && pickupAt > end) {
-    return `Pickup time can be at most 8 hours after the event ends (until ${fmt(end)})`;
+    return `Pickup time must be within the ride window (closes ${fmt(end)})`;
   }
   return null;
 }
@@ -153,7 +153,10 @@ guestsRouter.patch("/:guestId", requireRole("ADMIN"), async (req, res) => {
 });
 
 guestsRouter.get("/", requireRole("ADMIN"), async (_req, res) => {
+  const active = await getActiveEvent();
+  if (!active) return res.json([]);
   const guests = await prisma.guest.findMany({
+    where: { eventId: active.id },
     include: {
       user: { select: { name: true, email: true, phone: true, activatedAt: true, invitedAt: true } },
       accommodation: true,
