@@ -61,100 +61,35 @@ Pass:   password123
 
 There are **two** environment files in different folders. Each is used by different parts of the app.
 
-### 1. Root `.env` (copy from `.env.example`)
+Both `.env.example` files have inline notes on how to get every value — this section is just the summary.
 
-Used by the **API**, the **matching engine**, the **portal server**, and the **database tools**. This is the main one.
+### 1. Root `.env` — used by the API, engine, portal server, and DB tools
 
-**Database** — where all the data lives.
+Copy it: `cp .env.example .env`.
 
-| Key | Needed? | What it's for |
-|-----|--------|---------------|
-| `DATABASE_URL` | Yes | The connection string the app uses while running. |
-| `DIRECT_URL` | Yes | A direct connection used only for running migrations. |
+**Values you have to get:**
 
-How to get them on Supabase: create a project, then go to **Project Settings → Database → Connection string**.
-- `DATABASE_URL` = the **Transaction pooler** string (host ends in `pooler.supabase.com`, port **6543**). Pooling lets lots of small API calls share a few database connections.
-- `DIRECT_URL` = the **Direct connection** string (host looks like `db.<your-ref>.supabase.co`, port **5432**). Migrations need a direct connection.
-- Put your database password (the one you set when making the project) in place of `[YOUR-PASSWORD]` in both.
+- **`DATABASE_URL` / `DIRECT_URL`** — your Postgres connection strings. On Supabase go to **Project Settings → Database → Connection string**: use the **Transaction pooler** URL (port 6543) for `DATABASE_URL` and the **Direct connection** URL (port 5432) for `DIRECT_URL`, each with your DB password. Using local Postgres? Put the same URL in both.
+- **`JWT_SECRET` / `JWT_REFRESH_SECRET`** — two *different* random strings. Generate each (run twice):
+  - macOS / Linux: `openssl rand -hex 32`
+  - Windows (PowerShell): `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` (this node command works on macOS/Linux too).
+- **`GOOGLE_MAPS_API_KEY`** — *optional*. Leave empty to use the free offline estimator. For real maps, enable **Distance Matrix + Directions + Geocoding** in Google Cloud Console and create an API key.
+- **`SMTP_HOST/PORT/SECURE/USER/PASS`, `MAIL_FROM`** — *optional*. If unset, login emails just print to the console. For Gmail, turn on 2-Step Verification and create an **App Password** (Google Account → Security → App passwords) — use that as `SMTP_PASS`, not your normal password.
 
-Using local Postgres instead? Use the same URL for both, like `postgresql://postgres:postgres@localhost:5432/baraat`.
+**Constants — leave as they are unless you have a reason:**
 
-**Auth** — signs the login tokens.
+- `ACCESS_TOKEN_TTL=3d`, `REFRESH_TOKEN_TTL=30d` — token lifetimes.
+- `API_PORT=4000` — API port. `DISPATCH_TICK_MS=5000` — how often the engine runs (ms).
+- `BACKEND_URL=http://localhost:4000` — where the portal reaches the API (change to your live API URL in production).
+- `PORTAL_URL_DEV` / `PORTAL_URL_PROD` — the portal link put in the driver's welcome email (dev vs production).
 
-| Key | Needed? | What it's for |
-|-----|--------|---------------|
-| `JWT_SECRET` | Yes | Signs short-lived access tokens. |
-| `JWT_REFRESH_SECRET` | Yes | Signs long-lived refresh tokens. Must be different from the one above. |
-| `ACCESS_TOKEN_TTL` | No | How long an access token lasts (default `3d`). |
-| `REFRESH_TOKEN_TTL` | No | How long a refresh token lasts (default `30d`). |
+### 2. Guest app `apps/guest/.env` — used only by the mobile app
 
-How to get them: generate two different random strings. On Mac/Linux run this **twice** and paste one value into each:
-```bash
-openssl rand -hex 32
-```
+Copy it: `cp apps/guest/.env.example apps/guest/.env`. One key:
 
-**Maps** — real distances and ETAs.
+- **`EXPO_PUBLIC_API_URL`** — the backend address your phone calls. A phone can't reach `localhost`, so use your computer's Wi-Fi IP, e.g. `http://192.168.1.5:4000`. Find it with `ipconfig getifaddr en0` (macOS) or `ipconfig` and look for the "IPv4 Address" under your Wi-Fi adapter (Windows). The iOS Simulator can use `http://localhost:4000`.
 
-| Key | Needed? | What it's for |
-|-----|--------|---------------|
-| `GOOGLE_MAPS_API_KEY` | No | Turns on real driving distances, ETAs, and road routes. |
-
-Leave it **empty** and the app uses a built-in offline estimator (straight-line distance with fake but realistic traffic). Everything works with zero external calls. To use the real thing: in **Google Cloud Console**, enable the **Distance Matrix**, **Directions**, and **Geocoding** APIs, then make an API key under *APIs & Services → Credentials*.
-
-**Redis** — optional speed-up for the queue and map cache.
-
-| Key | Needed? | What it's for |
-|-----|--------|---------------|
-| `REDIS_URL` | No | Backs the waiting-queue and the map cache. |
-
-Leave it **empty** and the app keeps this in memory instead (totally fine for one engine process). For production, [Upstash](https://upstash.com) gives a free Redis URL, or use `redis://localhost:6379`.
-
-**Services** — small knobs.
-
-| Key | Needed? | What it's for |
-|-----|--------|---------------|
-| `API_PORT` | No | Port the API runs on (default `4000`). |
-| `DISPATCH_TICK_MS` | No | How often the engine re-checks and assigns, in milliseconds (default `5000`). |
-
-**Portal server** — how the website reaches the API.
-
-| Key | Needed? | What it's for |
-|-----|--------|---------------|
-| `BACKEND_URL` | Yes | The API address the portal's server talks to. `http://localhost:4000` in dev; your live API URL in production. |
-
-**Email** — sends drivers/guests their login details. All optional.
-
-| Key | Needed? | What it's for |
-|-----|--------|---------------|
-| `SMTP_HOST` | No | Mail server, e.g. `smtp.gmail.com`. |
-| `SMTP_PORT` | No | Mail port (default `587`). |
-| `SMTP_SECURE` | No | `true` for port 465, otherwise `false`. |
-| `SMTP_USER` | No | Your email address. |
-| `SMTP_PASS` | No | Your app password (see below). |
-| `MAIL_FROM` | No | The "from" name, e.g. `Baraat <no-reply@baraat.events>`. |
-
-If host/user/pass are empty, the app just **prints the email to the console** instead of sending it — so you can develop without email set up. To really send through **Gmail**: turn on **2-Step Verification**, then create an **App Password** (Google Account → Security → 2-Step Verification → App passwords) and use that 16-character code as `SMTP_PASS`. Your normal Gmail password will not work.
-
-**Driver email link** — which portal link goes in the driver's welcome email.
-
-| Key | Needed? | What it's for |
-|-----|--------|---------------|
-| `PORTAL_URL_DEV` | No | Link used when not in production (default `http://localhost:3000`). |
-| `PORTAL_URL_PROD` | No | Link used when `NODE_ENV=production`. |
-
-When you add a driver, the system emails them their login plus a link to the portal — the dev link during development, the production link in production. (A single `PORTAL_URL` overrides both.)
-
-### 2. Guest app `apps/guest/.env` (copy from `apps/guest/.env.example`)
-
-Used **only** by the guest mobile app.
-
-| Key | Needed? | What it's for |
-|-----|--------|---------------|
-| `EXPO_PUBLIC_API_URL` | Yes | The backend address the phone calls. |
-
-A phone can't reach `localhost` on your computer, so it needs your computer's **Wi-Fi (LAN) IP**. Find it with `ipconfig getifaddr en0` on Mac, then set something like `EXPO_PUBLIC_API_URL=http://192.168.1.41:4000`. If you use the iOS Simulator instead of a real phone, `http://localhost:4000` is fine.
-
-> **Note:** the root `.env` and `apps/guest/.env` are ignored by git; the `.env.example` files are committed. Before sharing the repo, make sure the `.env.example` files hold placeholder values, not real passwords or keys.
+> Both `.env` files are git-ignored; the `.env.example` files are public — keep only placeholder values in them, never real passwords or keys.
 
 ---
 
