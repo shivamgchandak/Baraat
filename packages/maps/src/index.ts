@@ -7,7 +7,6 @@ import { googleDirections, googleMatrix } from "./google.js";
 export { haversineMeters, mockEta } from "./mock.js";
 export { geocode, reverseGeocode, type GeocodeHit } from "./geocode.js";
 export { routeLeg, decodePolyline, type RouteLeg } from "./route.js";
-export { KOLHAPUR_PLACES, searchKnownPlaces, type KnownPlace } from "./places.js";
 
 const DYNAMIC_TTL_S = 60;
 const STATIC_TTL_S = 60 * 60 * 6;

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma, getActiveEventId } from "@baraat/db";
-import { geocode, reverseGeocode, searchKnownPlaces } from "@baraat/maps";
+import { geocode, reverseGeocode } from "@baraat/maps";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
 export const locationsRouter: Router = Router();
@@ -32,12 +32,10 @@ locationsRouter.get("/search", async (req, res) => {
     ...accommodations.map((a) => ({ label: a.name, lat: a.lat, lng: a.lng, kind: "HOTEL" })),
   ].filter((l) => l.label.toLowerCase().includes(needle));
 
-  const curated = searchKnownPlaces(q).map((p) => ({ ...p, kind: "PLACE" }));
-
   const external = (await geocode(q)).map((e) => ({ ...e, kind: "SEARCH" }));
 
   const seen = new Set<string>();
-  const merged = [...known, ...curated, ...external].filter((r) => {
+  const merged = [...known, ...external].filter((r) => {
     const key = r.label.toLowerCase();
     if (seen.has(key)) return false;
     seen.add(key);
