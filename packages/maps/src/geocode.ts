@@ -8,12 +8,43 @@ export interface GeocodeHit {
 }
 
 const TTL_S = 6 * 60 * 60;
+const UA = "baraat-dispatch/0.1 (event logistics demo)";
 
-export async function geocode(query: string): Promise<GeocodeHit[]> {
+export interface GeoBias {
+  lat: number;
+  lng: number;
+}
+
+/** Build a readable one-line label from Photon's structured properties. */
+function photonLabel(p: Record<string, unknown>): string {
+  const s = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  const street = s(p.street);
+  const house = s(p.housenumber);
+  const parts = [
+    s(p.name),
+    street ? (house ? `${house} ${street}` : street) : null,
+    s(p.district),
+    s(p.city) ?? s(p.county),
+    s(p.state),
+  ].filter((x): x is string => Boolean(x));
+
+  const seen = new Set<string>();
+  return parts
+    .filter((x) => {
+      const k = x.toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .join(", ");
+}
+
+export async function geocode(query: string, bias?: GeoBias): Promise<GeocodeHit[]> {
   const q = query.trim();
   if (q.length < 2) return [];
   const kv = getKv();
-  const key = `geo:${q.toLowerCase()}`;
+  const biasKey = bias ? `${bias.lat.toFixed(2)},${bias.lng.toFixed(2)}` : "";
+  const key = `geo:${q.toLowerCase()}:${biasKey}`;
   const hit = await kv.get(key);
   if (hit) return JSON.parse(hit) as GeocodeHit[];
 
@@ -31,17 +62,31 @@ export async function geocode(query: string): Promise<GeocodeHit[]> {
         }));
       }
     } else {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=6&q=${encodeURIComponent(q)}`;
-      const res = await fetch(url, {
-        headers: { "user-agent": "baraat-dispatch/0.1 (event logistics demo)" },
+
+      const params = new URLSearchParams({ q, limit: "6", lang: "en" });
+      if (bias) {
+        params.set("lat", String(bias.lat));
+        params.set("lon", String(bias.lng));
+      }
+      const res = await fetch(`https://photon.komoot.io/api/?${params.toString()}`, {
+        headers: { "user-agent": UA },
       });
       if (res.ok) {
-        const json = (await res.json()) as any[];
-        results = json.map((r) => ({
-          label: r.display_name as string,
-          lat: Number(r.lat),
-          lng: Number(r.lon),
-        }));
+        const json = (await res.json()) as any;
+        results = (Array.isArray(json?.features) ? json.features : [])
+          .map((f: any) => {
+            const coords = f?.geometry?.coordinates;
+            if (!Array.isArray(coords) || coords.length < 2) return null;
+            return {
+              label: photonLabel(f?.properties ?? {}),
+              lat: Number(coords[1]),
+              lng: Number(coords[0]),
+            };
+          })
+          .filter(
+            (h: GeocodeHit | null): h is GeocodeHit =>
+              Boolean(h?.label) && Number.isFinite(h!.lat) && Number.isFinite(h!.lng),
+          );
       }
     }
   } catch {
@@ -67,13 +112,13 @@ export async function reverseGeocode(lat: number, lng: number): Promise<string> 
       const json = (await res.json()) as any;
       if (json.status === "OK" && json.results[0]) label = json.results[0].formatted_address;
     } else {
-      const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`;
-      const res = await fetch(url, {
-        headers: { "user-agent": "baraat-dispatch/0.1 (event logistics demo)" },
-      });
+      const url = `https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}&limit=1&lang=en`;
+      const res = await fetch(url, { headers: { "user-agent": UA } });
       if (res.ok) {
         const json = (await res.json()) as any;
-        if (json.display_name) label = json.display_name;
+        const props = json?.features?.[0]?.properties;
+        const built = props ? photonLabel(props) : "";
+        if (built) label = built;
       }
     }
   } catch {

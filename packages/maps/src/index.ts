@@ -35,10 +35,16 @@ export async function eta(
   }
   let seconds: number;
   let meters: number;
+  let fromGoogle = false;
   if (usingGoogle()) {
-    const m = await googleMatrix([from], [to]);
-    seconds = m[0]![0]!.seconds;
-    meters = m[0]![0]!.meters;
+    try {
+      const m = await googleMatrix([from], [to]);
+      seconds = m[0]![0]!.seconds;
+      meters = m[0]![0]!.meters;
+      fromGoogle = true;
+    } catch {
+      ({ seconds, meters } = mockEta(from, to));
+    }
   } else {
     ({ seconds, meters } = mockEta(from, to));
   }
@@ -47,7 +53,7 @@ export async function eta(
     JSON.stringify({ seconds, meters }),
     opts.static ? STATIC_TTL_S : DYNAMIC_TTL_S,
   );
-  return { seconds, meters, provider: usingGoogle() ? "google" : "mock", cached: false };
+  return { seconds, meters, provider: fromGoogle ? "google" : "mock", cached: false };
 }
 
 export async function etaMatrix(
@@ -56,20 +62,23 @@ export async function etaMatrix(
 ): Promise<{ seconds: number; meters: number }[][]> {
   if (origins.length === 0 || destinations.length === 0) return [];
   if (usingGoogle()) {
-
-    const CHUNK = 25;
-    const result: { seconds: number; meters: number }[][] = origins.map(() => []);
-    for (let oi = 0; oi < origins.length; oi += CHUNK) {
-      const oSlice = origins.slice(oi, oi + CHUNK);
-      for (let di = 0; di < destinations.length; di += CHUNK) {
-        const dSlice = destinations.slice(di, di + CHUNK);
-        const part = await googleMatrix(oSlice, dSlice);
-        part.forEach((row, i) => {
-          result[oi + i]!.push(...row);
-        });
+    try {
+      const CHUNK = 25;
+      const result: { seconds: number; meters: number }[][] = origins.map(() => []);
+      for (let oi = 0; oi < origins.length; oi += CHUNK) {
+        const oSlice = origins.slice(oi, oi + CHUNK);
+        for (let di = 0; di < destinations.length; di += CHUNK) {
+          const dSlice = destinations.slice(di, di + CHUNK);
+          const part = await googleMatrix(oSlice, dSlice);
+          part.forEach((row, i) => {
+            result[oi + i]!.push(...row);
+          });
+        }
       }
+      return result;
+    } catch {
+      return origins.map((o) => destinations.map((d) => mockEta(o, d)));
     }
-    return result;
   }
   return origins.map((o) => destinations.map((d) => mockEta(o, d)));
 }
@@ -80,19 +89,22 @@ export async function orderedRoute(
   destination: LatLng,
 ): Promise<{ order: number[]; cumulativeSeconds: number[]; totalSeconds: number; totalMeters: number }> {
   if (usingGoogle() && stops.length > 0) {
-    const g = await googleDirections(origin, destination, stops);
-    const cumulative: number[] = [];
-    let acc = 0;
-    for (const s of g.legSeconds) {
-      acc += s;
-      cumulative.push(acc);
+    try {
+      const g = await googleDirections(origin, destination, stops);
+      const cumulative: number[] = [];
+      let acc = 0;
+      for (const s of g.legSeconds) {
+        acc += s;
+        cumulative.push(acc);
+      }
+      return {
+        order: g.orderedWaypointIndexes,
+        cumulativeSeconds: cumulative,
+        totalSeconds: acc,
+        totalMeters: g.legMeters.reduce((a, b) => a + b, 0),
+      };
+    } catch {
     }
-    return {
-      order: g.orderedWaypointIndexes,
-      cumulativeSeconds: cumulative,
-      totalSeconds: acc,
-      totalMeters: g.legMeters.reduce((a, b) => a + b, 0),
-    };
   }
 
   const remaining = stops.map((p, i) => ({ p, i }));

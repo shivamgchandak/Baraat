@@ -84,13 +84,18 @@ export async function login(
       body: JSON.stringify({ email, password }),
     });
     const j = await res.json();
-    if (!res.ok) return { ok: false, error: typeof j.error === "string" ? j.error : "Login failed" };
-    if (j.user.role !== "GUEST") {
+    console.log("[login]", API_URL, res.status, JSON.stringify(j));
+    if (!res.ok) {
+      const msg = typeof j?.error === "string" ? j.error : `Login failed (${res.status})`;
+      return { ok: false, error: msg };
+    }
+    if (j.user?.role !== "GUEST") {
       return { ok: false, error: "This app is for guests — staff use the Ops portal" };
     }
     await saveTokens(j.accessToken, j.refreshToken);
     return { ok: true };
-  } catch {
+  } catch (err) {
+    console.log("[login] threw", String(err));
     return { ok: false, error: `Can't reach the server. Is EXPO_PUBLIC_API_URL right? (${API_URL})` };
   }
 }

@@ -32,7 +32,11 @@ locationsRouter.get("/search", async (req, res) => {
     ...accommodations.map((a) => ({ label: a.name, lat: a.lat, lng: a.lng, kind: "HOTEL" })),
   ].filter((l) => l.label.toLowerCase().includes(needle));
 
-  const external = (await geocode(q)).map((e) => ({ ...e, kind: "SEARCH" }));
+  const biasSpot =
+    eventLocations.find((l) => l.kind === "VENUE") ?? eventLocations[0] ?? accommodations[0];
+  const bias = biasSpot ? { lat: biasSpot.lat, lng: biasSpot.lng } : undefined;
+
+  const external = (await geocode(q, bias)).map((e) => ({ ...e, kind: "SEARCH" }));
 
   const seen = new Set<string>();
   const merged = [...known, ...external].filter((r) => {

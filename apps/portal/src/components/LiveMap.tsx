@@ -1,7 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { api } from "@/lib/client";
 
 export interface MapDriver {
   id: string;
@@ -27,17 +28,20 @@ const COLORS: Record<string, string> = {
   OFFLINE: "#9ca3af",
 };
 
-function InnerMap({ drivers, waiting }: { drivers: MapDriver[]; waiting: MapPoint[] }) {
+function InnerMap({
+  drivers,
+  waiting,
+  center,
+}: {
+  drivers: MapDriver[];
+  waiting: MapPoint[];
+  center: [number, number];
+}) {
 
   const { MapContainer, TileLayer, CircleMarker, Tooltip } = require("react-leaflet");
 
   const located = drivers.filter((d) => d.lat != null && d.lng != null);
   const locatedGuests = waiting.filter((g) => g.lat != null && g.lng != null);
-
-  const center: [number, number] =
-    located.length > 0
-      ? [located[0]!.lat!, located[0]!.lng!]
-      : [16.7093, 74.2349];
 
   return (
     <MapContainer center={center} zoom={12} scrollWheelZoom>
@@ -87,7 +91,68 @@ const NoSSRMap = dynamic(() => Promise.resolve(InnerMap), {
   ),
 });
 
-export function LiveMap(props: { drivers: MapDriver[]; waiting: MapPoint[] }) {
-  const key = useMemo(() => "livemap", []);
-  return <NoSSRMap key={key} {...props} />;
+interface SavedLocations {
+  accommodations: { id: string; name: string; lat: number; lng: number }[];
+  places: { id: string; name: string; kind: string; lat: number; lng: number }[];
+}
+
+export function LiveMap({ drivers, waiting }: { drivers: MapDriver[]; waiting: MapPoint[] }) {
+  const [venue, setVenue] = useState<[number, number] | null>(null);
+  const [userPos, setUserPos] = useState<[number, number] | null>(null);
+  const [geoFailed, setGeoFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      const res = await api<SavedLocations>("/locations/saved");
+      if (!alive || !res.ok || !res.data) return;
+      const places = res.data.places ?? [];
+      const spot =
+        places.find((p) => p.kind === "VENUE") ??
+        places[0] ??
+        (res.data.accommodations ?? [])[0];
+      setVenue(spot ? [spot.lat, spot.lng] : null);
+    };
+    void load();
+    const id = setInterval(load, 30000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
+      setGeoFailed(true);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setUserPos([pos.coords.latitude, pos.coords.longitude]),
+      () => setGeoFailed(true),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 5 * 60_000 },
+    );
+  }, []);
+
+  const located = drivers.filter((d) => d.lat != null && d.lng != null);
+  const driverPos: [number, number] | null =
+    located.length > 0 ? [located[0]!.lat!, located[0]!.lng!] : null;
+
+  const center = venue ?? driverPos ?? userPos;
+
+  const key = useMemo(
+    () => (venue ? `venue:${venue[0].toFixed(4)},${venue[1].toFixed(4)}` : driverPos ? "driver" : "user"),
+    [venue, driverPos ? "driver" : "user"],
+  );
+
+  if (!center) {
+    return (
+      <div className="flex h-full items-center justify-center px-6 text-center text-sm text-soft">
+        {geoFailed
+          ? "Allow location access to centre the map, or create an event with a venue."
+          : "Finding your location…"}
+      </div>
+    );
+  }
+
+  return <NoSSRMap key={key} drivers={drivers} waiting={waiting} center={center} />;
 }
