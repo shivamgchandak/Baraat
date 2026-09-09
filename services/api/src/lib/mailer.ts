@@ -29,7 +29,7 @@ function portalUrl(): string {
 }
 
 const GUEST_APK_URL =
-  "https://expo.dev/artifacts/eas/MfybBkcXDv18xxOqcPoGfkDMdovH8v-3NOQGd_6YrB4.apk";
+  "https://expo.dev/artifacts/eas/DTRBUUiBWBbwSg06KiLlNtTaynycCormW6AMKkMOWGo.apk";
 
 export async function sendCredentialsEmail(opts: {
   to: string;
