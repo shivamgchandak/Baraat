@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Baraat — Event Dispatch",
+  title: "Baraat - Event Dispatch",
   description: "Dispatch portal for operations and drivers",
 };
 
